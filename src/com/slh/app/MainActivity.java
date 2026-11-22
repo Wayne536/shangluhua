@@ -21,7 +21,8 @@ public class MainActivity extends Activity {
 
     private TextView status;
     private LinearLayout list;
-    private Button startBtn, stopBtn;
+    private Button startBtn, stopBtn, capBtn;
+    private SessionCatcher catcher;
 
     @Override
     protected void onCreate(Bundle b) {
@@ -65,8 +66,15 @@ public class MainActivity extends Activity {
         half.rightMargin = dp(6);
         startBtn.setLayoutParams(half);
         stopBtn.setLayoutParams(new LinearLayout.LayoutParams(0, -2, 1f));
+        capBtn = new Button(this);
+        capBtn.setText("抓会话");
+        capBtn.setAllCaps(false);
+        capBtn.setTextSize(14);
+        capBtn.setOnClickListener(v -> new Thread(this::catchSession).start());
+        startBtn.setLayoutParams(half);
         row.addView(startBtn);
         row.addView(stopBtn);
+        row.addView(capBtn);
         root.addView(row);
 
         LinearLayout row2 = new LinearLayout(this);
@@ -105,6 +113,43 @@ public class MainActivity extends Activity {
         addItem("6887  19 色", "#333333", 13);
         addItem("8806  3 色", "#333333", 13);
         refreshStatus();
+        new Thread(this::cleanProxyIfLeft).start();
+    }
+
+    /** 上次异常退出可能留下全局代理，启动时清掉，避免手机断网 */
+    private void cleanProxyIfLeft() {
+        try {
+            String p = sh("settings get global http_proxy").trim();
+            if (p.contains("8899")) {
+                sh("settings put global http_proxy :0");
+                ui("已清理残留代理");
+            }
+        } catch (Throwable ignored) {}
+    }
+
+    private void catchSession() {
+        try {
+            ui("启动代理…");
+            if (catcher != null) catcher.stop();
+            catcher = new SessionCatcher();
+            catcher.start(sid -> ui("拿到会话: " + sid));
+            sh("settings put global http_proxy 127.0.0.1:" + SessionCatcher.PORT);
+            sh("am force-stop com.slh_mobile_pro");
+            Thread.sleep(800);
+            ui("打开商陆花…");
+            sh("am start -n com.slh_mobile_pro/com.slh_mobile_pro.MainActivity");
+            long deadline = System.currentTimeMillis() + 45000;
+            while (System.currentTimeMillis() < deadline && catcher.sid() == null) {
+                Thread.sleep(500);
+            }
+            sh("settings put global http_proxy :0");
+            catcher.stop();
+            ui(catcher.sid() == null ? "没抓到会话（看看商陆花有没有联网）"
+                                     : "会话: " + catcher.sid().substring(0, Math.min(24, catcher.sid().length())) + "…");
+        } catch (Throwable t) {
+            sh("settings put global http_proxy :0");
+            ui("抓会话失败: " + t);
+        }
     }
 
     private void addItem(String t, String color, int size) {
