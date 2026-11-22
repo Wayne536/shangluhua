@@ -61,44 +61,81 @@ public class SessionCatcher {
         try { if (server != null) server.close(); } catch (IOException ignored) {}
     }
 
-    private static void pump(InputStream in, OutputStream out) {
-        try {
-            byte[] b = new byte[8192];
-            int r;
-            while ((r = in.read(b)) > 0) { out.write(b, 0, r); out.flush(); }
-        } catch (Throwable ignored) {}
-    }
-
     private void handle(Socket c, Found cb) {
         try {
-            c.setSoTimeout(8000);
+            c.setSoTimeout(20000);
             InputStream in = c.getInputStream();
-            byte[] buf = new byte[16384];
-            int n = in.read(buf);          // 阻塞读第一段
-            if (n <= 0) { log("连上但没数据"); c.close(); return; }
-            log("首包 " + n + " 字节: " + new String(buf, 0, Math.min(60, n), "UTF-8").replace("\n", " "));
-            String head = new String(buf, 0, n, "UTF-8");
-            int hdrEnd = head.indexOf("\r\n\r\n");
-            int bodyStart = hdrEnd >= 0 ? hdrEnd + 4 : n;
-            String headerPart = head.substring(0, Math.max(0, Math.min(bodyStart, head.length())));
 
-            Matcher m = SID.matcher(head);
-            if (m.find() && sid == null) {
-                sid = m.group(1);
-                log("抓到 sessionid");
-                cb.onFound(sid);
+            // 1) 读到完整请求头
+            java.io.ByteArrayOutputStream headBuf = new java.io.ByteArrayOutputStream();
+            byte[] tmp = new byte[4096];
+            int hdrEnd = -1;
+            while (hdrEnd < 0) {
+                int r = in.read(tmp);
+                if (r <= 0) { c.close(); return; }
+                headBuf.write(tmp, 0, r);
+                String cur = new String(headBuf.toByteArray(), "ISO-8859-1");
+                hdrEnd = cur.indexOf("\r\n\r\n");
+                if (headBuf.size() > 65536) { c.close(); return; }
             }
-
-            String[] lines = headerPart.split("\r?\n");
-            if (lines.length == 0) { c.close(); return; }
+            byte[] all = headBuf.toByteArray();
+            String headStr = new String(all, 0, hdrEnd, "ISO-8859-1");
+            String[] lines = headStr.split("\r\n");
             String[] parts = lines[0].split(" ");
             if (parts.length < 3) { c.close(); return; }
             String method = parts[0], url = parts[1];
+            log("请求: " + method + " " + (url.length() > 70 ? url.substring(0, 70) : url));
 
-            String host = null; int port = 80; String path = url;
-            for (String line : lines) {
-                if (line.toLowerCase().startsWith("host:")) host = line.substring(5).trim();
+            // 2) 按 Content-Length 读完整请求体
+            int clen = 0;
+            for (String l : lines) if (l.toLowerCase().startsWith("content-length:"))
+                clen = Integer.parseInt(l.substring(15).trim());
+            java.io.ByteArrayOutputStream bodyBuf = new java.io.ByteArrayOutputStream();
+            int already = all.length - (hdrEnd + 4);
+            if (already > 0) bodyBuf.write(all, hdrEnd + 4, already);
+            while (bodyBuf.size() < clen) {
+                int r = in.read(tmp);
+                if (r <= 0) break;
+                bodyBuf.write(tmp, 0, r);
             }
+            byte[] body = bodyBuf.toByteArray();
+
+            // 3) 顺带捞 sessionid
+            String probe = headStr + new String(body, "ISO-8859-1");
+            Matcher m = SID.matcher(probe);
+            if (m.find() && sid == null) {
+                sid = m.group(1);
+                log("抓到 sessionid: " + sid);
+                cb.onFound(sid);
+            }
+
+            if ("CONNECT".equalsIgnoreCase(method)) {
+                String hp = url; String h2 = hp; int p2 = 443;
+                if (hp.contains(":")) {
+                    h2 = hp.substring(0, hp.indexOf(':'));
+                    p2 = Integer.parseInt(hp.substring(hp.indexOf(':') + 1));
+                }
+                final Socket t = new Socket();
+                t.connect(new InetSocketAddress(h2, p2), 8000);
+                OutputStream to = c.getOutputStream();
+                to.write("HTTP/1.1 200 Connection Established\r\n\r\n".getBytes("ISO-8859-1"));
+                to.flush();
+                if (body.length > 0) { t.getOutputStream().write(body); t.getOutputStream().flush(); }
+                final InputStream cin = in;
+                final InputStream tin = t.getInputStream();
+                Thread t1 = new Thread(() -> pump(cin, t));
+                Thread t2 = new Thread(() -> pump(tin, c));
+                t1.setDaemon(true); t2.setDaemon(true);
+                t1.start(); t2.start();
+                t1.join(120000); t2.join(120000);
+                try { t.close(); } catch (Throwable ignored) {}
+                try { c.close(); } catch (Throwable ignored) {}
+                return;
+            }
+
+            // 4) 普通 HTTP 转发
+            String host = null; int port = 80; String path = url;
+            for (String l : lines) if (l.toLowerCase().startsWith("host:")) host = l.substring(5).trim();
             if (url.startsWith("http://")) {
                 String rest = url.substring(7);
                 int slash = rest.indexOf('/');
@@ -109,33 +146,8 @@ public class SessionCatcher {
                     port = Integer.parseInt(hp.substring(hp.indexOf(':') + 1));
                 } else host = hp;
             }
-            if ("CONNECT".equalsIgnoreCase(method)) {
-                // HTTPS：只建隧道，不解密，保证其它 App 正常上网
-                String hp = parts[1];
-                String h2 = hp; int p2 = 443;
-                if (hp.contains(":")) {
-                    h2 = hp.substring(0, hp.indexOf(':'));
-                    p2 = Integer.parseInt(hp.substring(hp.indexOf(':') + 1));
-                }
-                Socket t = new Socket();
-                t.connect(new InetSocketAddress(h2, p2), 8000);
-                OutputStream to = c.getOutputStream();
-                to.write("HTTP/1.1 200 Connection Established\r\n\r\n".getBytes("UTF-8"));
-                to.flush();
-                final InputStream cin = c.getInputStream();
-                final InputStream tin = t.getInputStream();
-                final OutputStream tout = t.getOutputStream();
-                final OutputStream cout = c.getOutputStream();
-                Thread t1 = new Thread(() -> pump(cin, tout));
-                Thread t2 = new Thread(() -> pump(tin, cout));
-                t1.setDaemon(true); t2.setDaemon(true);
-                t1.start(); t2.start();
-                t1.join(60000); t2.join(60000);
-                try { t.close(); } catch (Throwable ignored) {}
-                try { c.close(); } catch (Throwable ignored) {}
-                return;
-            }
             if (host == null) { c.close(); return; }
+            log("转发到 " + host + ":" + port);
 
             Socket up = new Socket();
             up.connect(new InetSocketAddress(host, port), 8000);
@@ -143,24 +155,38 @@ public class SessionCatcher {
             StringBuilder req = new StringBuilder();
             req.append(method).append(" ").append(path).append(" ").append(parts[2]).append("\r\n");
             for (int i = 1; i < lines.length; i++) {
-                if (!lines[i].isEmpty()) req.append(lines[i]).append("\r\n");
+                String l = lines[i];
+                if (l.isEmpty()) continue;
+                String low = l.toLowerCase();
+                if (low.startsWith("proxy-connection") || low.startsWith("connection:")) continue;
+                req.append(l).append("\r\n");
             }
-            req.append("\r\n");
-            uo.write(req.toString().getBytes("UTF-8"));
-            if (bodyStart < n) uo.write(buf, bodyStart, n - bodyStart);
+            req.append("Connection: close\r\n\r\n");
+            uo.write(req.toString().getBytes("ISO-8859-1"));
+            if (body.length > 0) uo.write(body);
             uo.flush();
 
             InputStream ui = up.getInputStream();
             OutputStream co = c.getOutputStream();
             byte[] b2 = new byte[8192];
             int r;
-            while ((r = ui.read(b2)) > 0) co.write(b2, 0, r);
+            while ((r = ui.read(b2)) > 0) { co.write(b2, 0, r); }
             co.flush();
             up.close();
             c.close();
         } catch (Throwable t) {
-            log("处理异常: " + t);
+            log("异常: " + t);
             try { c.close(); } catch (Throwable ignored) {}
         }
+    }
+
+    private static void pump(InputStream in, Socket out) {
+        try {
+            OutputStream o = out.getOutputStream();
+            byte[] b = new byte[8192];
+            int r;
+            while ((r = in.read(b)) > 0) { o.write(b, 0, r); o.flush(); }
+        } catch (Throwable ignored) {}
+        try { out.shutdownOutput(); } catch (Throwable ignored) {}
     }
 }

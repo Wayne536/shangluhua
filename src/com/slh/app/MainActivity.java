@@ -30,7 +30,7 @@ public class MainActivity extends Activity {
     private EditText input;
     private LinearLayout logBox;
     private ScrollView logScroll;
-    private SessionCatcher catcher;
+    private ProxyCatcher catcher;
     private SharedPreferences sp;
 
     @Override
@@ -101,6 +101,13 @@ public class MainActivity extends Activity {
 
     // ---------- 日志 ----------
     private void log(String s) {
+        try {
+            java.io.File f = new java.io.File(getExternalFilesDir(null), "cap.log");
+            java.io.FileWriter w = new java.io.FileWriter(f, true);
+            w.write(new java.text.SimpleDateFormat("HH:mm:ss").format(new java.util.Date())
+                    + " " + s + "\n");
+            w.close();
+        } catch (Throwable ignored) {}
         runOnUiThread(() -> {
             TextView t = new TextView(this);
             t.setText(s);
@@ -147,14 +154,13 @@ public class MainActivity extends Activity {
         try {
             log("抓会话：设置代理…");
             if (catcher != null) catcher.stop();
-            catcher = new SessionCatcher();
-            catcher.setLogFile(new java.io.File(getExternalFilesDir(null), "cap.log"));
-            catcher.start(sid -> {});
+            catcher = new ProxyCatcher();
+            catcher.start(SessionCatcher.PORT, sid -> {}, msg -> log(msg));
             sh("settings put global http_proxy 127.0.0.1:" + SessionCatcher.PORT);
             sh("am force-stop com.slh_mobile_pro");
             Thread.sleep(700);
             sh("am start -n com.slh_mobile_pro/com.slh_mobile_pro.MainActivity");
-            long deadline = System.currentTimeMillis() + 45000;
+            long deadline = System.currentTimeMillis() + 150000;
             while (System.currentTimeMillis() < deadline && catcher.sid() == null) {
                 Thread.sleep(400);
             }
