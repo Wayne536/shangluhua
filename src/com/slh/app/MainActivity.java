@@ -152,26 +152,48 @@ public class MainActivity extends Activity {
     // ---------- 会话 ----------
     private String captureSession() {
         try {
-            log("抓会话：设置代理…");
+            log("抓会话：启动代理…");
             if (catcher != null) catcher.stop();
             catcher = new ProxyCatcher();
             catcher.start(SessionCatcher.PORT, sid -> {}, msg -> log(msg));
+
             sh("settings put global http_proxy 127.0.0.1:" + SessionCatcher.PORT);
+            int w = getResources().getDisplayMetrics().widthPixels;
+            int h = getResources().getDisplayMetrics().heightPixels;
             sh("am force-stop com.slh_mobile_pro");
-            Thread.sleep(700);
+            Thread.sleep(600);
             sh("am start -n com.slh_mobile_pro/com.slh_mobile_pro.MainActivity");
-            long deadline = System.currentTimeMillis() + 150000;
-            while (System.currentTimeMillis() < deadline && catcher.sid() == null) {
-                Thread.sleep(400);
+
+            log("等待商陆花进入首页…");
+            for (int i = 0; i < 14 && catcher.sid() == null; i++) Thread.sleep(1000);
+
+            if (catcher.sid() == null) {
+                log("点「货品」触发接口…");
+                sh("input tap " + (w / 3) + " " + (int) (h * 0.855));
+                Thread.sleep(3500);
             }
+            if (catcher.sid() == null) {
+                log("点底部「库存」再试…");
+                sh("input tap " + (int) (w * 0.78) + " " + (int) (h * 0.952));
+                Thread.sleep(3500);
+            }
+            if (catcher.sid() == null) {
+                log("再点货品区域…");
+                sh("input tap " + (int) (w * 0.22) + " " + (int) (h * 0.80));
+                Thread.sleep(3500);
+            }
+
+            long deadline = System.currentTimeMillis() + 40000;
+            while (System.currentTimeMillis() < deadline && catcher.sid() == null) Thread.sleep(400);
+
             String sid = catcher.sid();
             sh("settings put global http_proxy :0");
             catcher.stop();
             if (sid != null) {
                 sp.edit().putString("sid", sid).apply();
-                log("会话已更新：" + sid.substring(0, Math.min(20, sid.length())) + "…");
+                log("会话已更新：" + sid.substring(0, Math.min(22, sid.length())) + "…");
             } else {
-                log("没抓到会话（商陆花没联网？）");
+                log("没抓到：请手动打开商陆花「货品」页后再点抓会话");
             }
             return sid;
         } catch (Throwable t) {
