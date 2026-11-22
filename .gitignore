@@ -1,0 +1,6 @@
+build/
+libs_jars/
+*.apk
+*.keystore
+session.txt
+*.log
