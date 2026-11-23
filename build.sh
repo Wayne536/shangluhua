@@ -34,7 +34,7 @@ $BT/aapt2 link -o build/base.apk -I "$AJ" --manifest AndroidManifest.xml \
   build/res.zip --min-sdk-version 24 --target-sdk-version 30 --java build/gen
 
 echo "[2/5] 编译 Java"
-CP="$AJ:$(find build/libs_jars -name classes.jar | tr '\n' ':')$(find libs-proxy -name '*.jar' | tr '\n' ':')"
+CP="$AJ:$(find build/libs_jars -name classes.jar | tr '\n' ':')"
 javac -source 8 -target 8 -encoding UTF-8 -classpath "$CP" -d build/classes \
   $(find src build/gen -name '*.java') > build/javac.log 2>&1 || {
     echo "编译失败:"; grep -E "error" build/javac.log | head -20; exit 1; }
@@ -43,8 +43,7 @@ test -f build/classes/com/slh/app/MainActivity.class || { echo "没有产出 Mai
 echo "[3/5] dex"
 java -cp "$R8" com.android.tools.r8.D8 --lib "$AJ" --min-api 24 --output build/dex \
   $(find build/classes -name '*.class') \
-  $(find build/libs_jars -name classes.jar) \
-  $(find libs-proxy -name '*.jar')
+  $(find build/libs_jars -name classes.jar)
 
 echo "[4/5] 打包"
 cd build

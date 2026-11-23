@@ -919,7 +919,8 @@ public class MainActivity extends Activity {
                         + "再回来点「我已关掉，开始抓取」。"
                 : "把商陆花切到「货品」页面，等页面正常显示。\n\n"
                         + "这一步不挂代理，不会卡在启动页。\n\n"
-                        + "准备好后点「开始抓取」，再切回商陆花下拉刷新。";
+                        + "准备好后点「开始抓取」，再切回商陆花，点右下角「＋ 新增货品」"
+                        + "（不用填、不用保存），或者下拉刷新。";
         new AlertDialog.Builder(this)
                 .setTitle(title)
                 .setMessage(msg)
@@ -960,10 +961,10 @@ public class MainActivity extends Activity {
             log("启动代理…");
             if (catcher != null) catcher.stop();
             catcher = new ProxyCatcher();
-            catcher.start(SessionCatcher.PORT, s -> {}, msg -> log(msg));
+            catcher.start(ProxyCatcher.PORT, s -> {}, msg -> log(msg));
 
-            sh("settings put global http_proxy 127.0.0.1:" + SessionCatcher.PORT);
-            log("第 2 步：代理已开启。请切回商陆花，下拉刷新「货品」页");
+            sh("settings put global http_proxy 127.0.0.1:" + ProxyCatcher.PORT);
+            log("第 2 步：代理已开启。请切回商陆花，点「＋ 新增货品」或下拉刷新「货品」页");
             log("最多等 2 分钟；抓到会话或点「取消抓取」会立刻关闭代理");
             long deadline = System.currentTimeMillis() + 120000;
             while (System.currentTimeMillis() < deadline
