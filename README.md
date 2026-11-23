@@ -1,11 +1,13 @@
 # 入库助手（商陆花 × 微信笔记）
 
-**当前版本：v1.1.4（两步抓会话恢复版）**
-安装包：`releases/入库助手-v1.1.4.apk`
+**当前版本：v1.1.5（设置页 + GitHub 更新）**
+安装包：`releases/入库助手-v1.1.5.apk`
 
 把微信群里发的商品笔记，一条条录进商陆花的货品档案。手机上独立运行，不需要电脑。
 
 ![界面](docs/screenshot.png)
+
+![设置](docs/settings.png)
 
 ## 能做什么
 
@@ -17,6 +19,7 @@
 - 最多 9 张图片，随货品一起上传
 - 会话抓取一次长期保存；失效自动重抓
 - 本次结果、逐条日志、失败原因，界面里直接看
+- 设置页：权限管理（Shizuku / 悬浮窗 / 通知 / 电池白名单）、GitHub 检查更新、下载安装
 
 ## 快速开始
 
@@ -74,6 +77,7 @@ Shizuku 的 api / aidl / provider 三个 aar（`libs/`），代理相关 jar 在
   - `SlhApi` 商陆花接口封装
   - `NoteParser` 笔记解析
   - `ProxyCatcher` / `SessionCatcher` 抓 sessionid
+  - `SettingsActivity` 设置、权限与 GitHub 更新
 - `res/` — Material 主题、卡片/按钮背景、矢量图标
 - `docs/screenshot.png` — 界面截图
 - `releases/` — 发布包

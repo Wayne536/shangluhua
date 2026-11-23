@@ -210,6 +210,15 @@ public class MainActivity extends Activity {
         statusPill.setPadding(dp(11), dp(6), dp(11), dp(6));
         statusPill.setBackground(pillBg(col(R.color.primary_soft)));
         statusPill.setOnClickListener(v -> onStatusClick());
+
+        ImageView gear = new ImageView(this);
+        gear.setImageDrawable(icon(R.drawable.ic_settings, col(R.color.muted), dp(20)));
+        gear.setBackgroundResource(R.drawable.bg_text_button);
+        gear.setPadding(dp(9), dp(9), dp(9), dp(9));
+        gear.setOnClickListener(v -> startActivity(new Intent(this, SettingsActivity.class)));
+        LinearLayout.LayoutParams glp = new LinearLayout.LayoutParams(dp(38), dp(38));
+        glp.rightMargin = dp(4);
+        bar.addView(gear, glp);
         bar.addView(statusPill);
         return bar;
     }
