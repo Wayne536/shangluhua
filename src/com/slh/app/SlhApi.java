@@ -155,8 +155,51 @@ public class SlhApi {
         return call("cs-save-dict-full", e);
     }
 
+    /** 上传一张图片，返回 fileid（与网页版参数一致） */
+    public String uploadImage(byte[] data, String filename) throws Exception {
+        String boundary = "----slh" + Long.toHexString(System.nanoTime());
+        Map<String, String> p = new LinkedHashMap<>();
+        p.put("productVersion", "2.6.9");
+        p.put("dlUseFieldNameAlias", "1");
+        p.put("productCode", "pocketSLhPro");
+        p.put("dlProductCode", "pocketSLhPro");
+        p.put("deviceType", "9");
+        p.put("slh_version", "2.6.9");
+        p.put("sessionid", sid);
+        p.put("sessionId", sid);
+        String url = "http://" + HOST + ":" + PORT + "/slh/uploadMultiFile.do?" + enc(p);
+
+        java.io.ByteArrayOutputStream bo = new java.io.ByteArrayOutputStream();
+        bo.write(("--" + boundary + "\r\n").getBytes("UTF-8"));
+        bo.write(("Content-Disposition: form-data; name=\"" + filename
+                + "\"; filename=\"" + filename + "\"\r\n").getBytes("UTF-8"));
+        bo.write("Content-Type: application/octet-stream\r\n\r\n".getBytes("UTF-8"));
+        bo.write(data);
+        bo.write(("\r\n--" + boundary + "--\r\n").getBytes("UTF-8"));
+        byte[] body = bo.toByteArray();
+
+        HttpURLConnection c = (HttpURLConnection) new URL(url).openConnection();
+        c.setRequestMethod("POST");
+        c.setDoOutput(true);
+        c.setConnectTimeout(20000);
+        c.setReadTimeout(120000);
+        c.setRequestProperty("Content-Type", "multipart/form-data; boundary=" + boundary);
+        OutputStream o = c.getOutputStream();
+        o.write(body);
+        o.flush();
+        o.close();
+        InputStream in = c.getInputStream();
+        ByteArrayOutputStream rb = new ByteArrayOutputStream();
+        byte[] buf = new byte[8192];
+        int n;
+        while ((n = in.read(buf)) > 0) rb.write(buf, 0, n);
+        in.close();
+        c.disconnect();
+        return new String(rb.toByteArray(), "UTF-8").trim();
+    }
+
     public JSONObject createStyle(String code, String name, List<String> colorSids,
-                                  List<String> sizeSids, String fileid) throws Exception {
+                                  List<String> sizeSids, String fileid, String purprice) throws Exception {
         JSONObject p = new JSONObject();
         p.put("fileid", fileid == null ? "" : fileid);
         p.put("videoId", "");
@@ -169,7 +212,10 @@ public class SlhApi {
         p.put("colorids", Text.join(colorSids));
         p.put("sizeids", Text.join(sizeSids));
         p.put("marketdate", Text.today());
-        p.put("purprice", "");
+        if (purprice != null && purprice.matches("\\d+(\\.\\d+)?"))
+            p.put("purprice", new java.math.BigDecimal(purprice));
+        else
+            p.put("purprice", "");
         p.put("stdprice1", "");
         p.put("uselastprice", "1");
         p.put("special", "0");

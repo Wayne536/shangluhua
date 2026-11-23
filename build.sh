@@ -16,8 +16,9 @@ for a in glob.glob("/root/workspace/libs/*.aar"):
     print("解包", n)
 PY2
 echo "[1/5] 资源与清单"
+$BT/aapt2 compile --dir res -o build/res.zip
 $BT/aapt2 link -o build/base.apk -I $AJ --manifest AndroidManifest.xml \
-  --min-sdk-version 24 --target-sdk-version 30 --java build/gen
+  build/res.zip --min-sdk-version 24 --target-sdk-version 30 --java build/gen
 echo "[2/5] 编译 Java"
 CP=$AJ:$(find libs_jars -name classes.jar | tr '\n' ':'):$(find /root/workspace/proxylibs -name '*.jar' | tr '\n' ':')
 javac -source 8 -target 8 -classpath "$AJ:$CP" -d build/classes \

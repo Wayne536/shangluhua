@@ -31,6 +31,8 @@ public class MainActivity extends Activity {
     private LinearLayout logBox;
     private ScrollView logScroll;
     private ProxyCatcher catcher;
+    private android.widget.EditText priceInput;
+    private final java.util.List<android.net.Uri> images = new java.util.ArrayList<>();
     private SharedPreferences sp;
 
     @Override
@@ -66,6 +68,17 @@ public class MainActivity extends Activity {
         input.setPadding(dp(8), dp(6), dp(8), dp(6));
         root.addView(input, new LinearLayout.LayoutParams(-1, -2));
 
+        priceInput = new android.widget.EditText(this);
+        priceInput.setHint("进货价（可选，填了所有新建货品都带上）");
+        priceInput.setTextSize(13);
+        priceInput.setInputType(android.text.InputType.TYPE_CLASS_NUMBER
+                | android.text.InputType.TYPE_NUMBER_FLAG_DECIMAL);
+        priceInput.setBackgroundColor(0xFFF5F5F6);
+        priceInput.setPadding(dp(8), dp(4), dp(8), dp(4));
+        LinearLayout.LayoutParams plp = new LinearLayout.LayoutParams(-1, -2);
+        plp.topMargin = dp(4);
+        root.addView(priceInput, plp);
+
         LinearLayout row = new LinearLayout(this);
         row.setOrientation(LinearLayout.HORIZONTAL);
         row.setPadding(0, dp(6), 0, dp(6));
@@ -79,12 +92,25 @@ public class MainActivity extends Activity {
         cap.setAllCaps(false);
         cap.setTextSize(15);
         cap.setOnClickListener(v -> new Thread(this::captureSession).start());
+
+        Button pick = new Button(this);
+        pick.setText("选图");
+        pick.setAllCaps(false);
+        pick.setOnClickListener(v -> {
+            android.content.Intent i = new android.content.Intent(
+                    android.content.Intent.ACTION_GET_CONTENT);
+            i.setType("image/*");
+            i.putExtra(android.content.Intent.EXTRA_ALLOW_MULTIPLE, true);
+            startActivityForResult(android.content.Intent.createChooser(i, "选择图片"), 2001);
+        });
         LinearLayout.LayoutParams h = new LinearLayout.LayoutParams(0, -2, 1f);
         h.rightMargin = dp(6);
         imp.setLayoutParams(h);
-        cap.setLayoutParams(new LinearLayout.LayoutParams(0, -2, 1f));
+        cap.setLayoutParams(h);
+        pick.setLayoutParams(new LinearLayout.LayoutParams(0, -2, 1f));
         row.addView(imp);
         row.addView(cap);
+        row.addView(pick);
         root.addView(row);
 
         logScroll = new ScrollView(this);
@@ -152,48 +178,25 @@ public class MainActivity extends Activity {
     // ---------- 会话 ----------
     private String captureSession() {
         try {
-            log("抓会话：启动代理…");
+            log("启动代理…");
             if (catcher != null) catcher.stop();
             catcher = new ProxyCatcher();
             catcher.start(SessionCatcher.PORT, sid -> {}, msg -> log(msg));
 
             sh("settings put global http_proxy 127.0.0.1:" + SessionCatcher.PORT);
-            int w = getResources().getDisplayMetrics().widthPixels;
-            int h = getResources().getDisplayMetrics().heightPixels;
-            sh("am force-stop com.slh_mobile_pro");
-            Thread.sleep(600);
-            sh("am start -n com.slh_mobile_pro/com.slh_mobile_pro.MainActivity");
-
-            log("等待商陆花进入首页…");
-            for (int i = 0; i < 14 && catcher.sid() == null; i++) Thread.sleep(1000);
-
-            if (catcher.sid() == null) {
-                log("点「货品」触发接口…");
-                sh("input tap " + (w / 3) + " " + (int) (h * 0.855));
-                Thread.sleep(3500);
+            log("请切到商陆花 → 打开「货品」页面，再点一下刷新");
+            long deadline = System.currentTimeMillis() + 120000;
+            while (System.currentTimeMillis() < deadline && catcher.sid() == null) {
+                Thread.sleep(400);
             }
-            if (catcher.sid() == null) {
-                log("点底部「库存」再试…");
-                sh("input tap " + (int) (w * 0.78) + " " + (int) (h * 0.952));
-                Thread.sleep(3500);
-            }
-            if (catcher.sid() == null) {
-                log("再点货品区域…");
-                sh("input tap " + (int) (w * 0.22) + " " + (int) (h * 0.80));
-                Thread.sleep(3500);
-            }
-
-            long deadline = System.currentTimeMillis() + 40000;
-            while (System.currentTimeMillis() < deadline && catcher.sid() == null) Thread.sleep(400);
-
             String sid = catcher.sid();
             sh("settings put global http_proxy :0");
             catcher.stop();
             if (sid != null) {
                 sp.edit().putString("sid", sid).apply();
-                log("会话已更新：" + sid.substring(0, Math.min(22, sid.length())) + "…");
+                log("✅ 会话已更新：" + sid.substring(0, Math.min(22, sid.length())) + "…");
             } else {
-                log("没抓到：请手动打开商陆花「货品」页后再点抓会话");
+                log("❌ 没抓到：确认商陆花已打开货品页并刷新，再点一次抓会话");
             }
             return sid;
         } catch (Throwable t) {
@@ -245,10 +248,45 @@ public class MainActivity extends Activity {
         if (sid == null) { log("没有会话，先点「抓会话」"); return; }
         SlhApi api = new SlhApi(sid);
         ui("读取基础数据…");
-        Map<String, JSONObject> colors = api.colors();
+        Map<String, JSONObject> colors;
+        try {
+            colors = api.colors();
+        } catch (SlhApi.SessionExpired e) {
+            log("会话失效，自动重新抓取…");
+            sid = captureSession();
+            if (sid == null) { log("重抓失败，请手动点「抓会话」"); return; }
+            api = new SlhApi(sid);
+            colors = api.colors();
+        }
         Map<String, JSONObject> sizes = api.sizes();
         List<String> codes = api.codes();
         log("颜色 " + colors.size() + " 个，尺码 " + sizes.size() + " 个，货品 " + codes.size() + " 条");
+
+        String fileid = "";
+        if (!images.isEmpty()) {
+            ui("上传图片…");
+            java.util.List<String> ids = new java.util.ArrayList<>();
+            int max = Math.min(9, images.size());
+            for (int i = 0; i < max; i++) {
+                try {
+                    java.io.InputStream in = getContentResolver().openInputStream(images.get(i));
+                    java.io.ByteArrayOutputStream bo = new java.io.ByteArrayOutputStream();
+                    byte[] buf = new byte[8192];
+                    int n;
+                    while ((n = in.read(buf)) > 0) bo.write(buf, 0, n);
+                    in.close();
+                    String fid = api.uploadImage(bo.toByteArray(), "IMG_" + (i + 1) + ".jpg");
+                    if (fid.matches("\\d+")) { ids.add(fid); }
+                    else { log("图片 " + (i + 1) + " 返回异常：" + fid.substring(0, Math.min(40, fid.length()))); }
+                } catch (Exception e) {
+                    log("图片 " + (i + 1) + " 上传失败：" + e);
+                }
+            }
+            StringBuilder sb = new StringBuilder();
+            for (String id : ids) { if (sb.length() > 0) sb.append(','); sb.append(id); }
+            fileid = sb.toString();
+            log("图片 " + ids.size() + "/" + max + " 张已上传");
+        }
 
         int ok = 0, skip = 0, fail = 0;
         for (String note : notes) {
@@ -289,7 +327,8 @@ public class MainActivity extends Activity {
                 else if (sizes.containsKey("均码")) sids.add(sizes.get("均码").optString("sid"));
             }
 
-            JSONObject r = api.createStyle(n.no, n.name, cids, sids, "");
+            String pp = priceInput.getText().toString().trim();
+            JSONObject r = api.createStyle(n.no, n.name, cids, sids, fileid, pp);
             if (r.has("val")) {
                 log("✔ " + n.no + " → id " + r.optString("val") + "（" + cids.size() + " 色）");
                 codes.add(n.no);
@@ -303,5 +342,22 @@ public class MainActivity extends Activity {
             }
         }
         ui("完成：成功 " + ok + " / 跳过 " + skip + " / 失败 " + fail);
+    }
+
+    @Override
+    protected void onActivityResult(int req, int res, android.content.Intent data) {
+        super.onActivityResult(req, res, data);
+        if (req == 2001 && res == RESULT_OK && data != null) {
+            images.clear();
+            if (data.getClipData() != null) {
+                int n = data.getClipData().getItemCount();
+                for (int i = 0; i < n && i < 9; i++) {
+                    images.add(data.getClipData().getItemAt(i).getUri());
+                }
+            } else if (data.getData() != null) {
+                images.add(data.getData());
+            }
+            log("已选 " + images.size() + " 张图");
+        }
     }
 }
