@@ -1,8 +1,8 @@
 <?xml version="1.0" encoding="utf-8"?>
 <manifest xmlns:android="http://schemas.android.com/apk/res/android"
     package="com.slh.app"
-    android:versionCode="1"
-    android:versionName="1.0.0">
+    android:versionCode="2"
+    android:versionName="1.1.0">
     <uses-permission android:name="android.permission.INTERNET"/>
     <uses-permission android:name="moe.shizuku.manager.permission.API_V23"/>
     <uses-permission android:name="android.permission.KEEP_SCREEN_ON"/>
@@ -11,10 +11,11 @@
     <uses-permission android:name="android.permission.FOREGROUND_SERVICE_MEDIA_PROJECTION"/>
     <uses-permission android:name="android.permission.POST_NOTIFICATIONS"/>
     <application android:label="入库助手"
-                 android:icon="@mipmap/ic_launcher" android:theme="@android:style/Theme.Material.Light.NoActionBar"
+                 android:icon="@mipmap/ic_launcher" android:theme="@style/AppTheme"
                  android:usesCleartextTraffic="true">
         <activity android:name=".MainActivity" android:exported="true"
-                  android:configChanges="orientation|screenSize|screenLayout|smallestScreenSize">
+                  android:configChanges="orientation|screenSize|screenLayout|smallestScreenSize"
+                  android:windowSoftInputMode="adjustResize|stateHidden">
             <intent-filter>
                 <action android:name="android.intent.action.MAIN"/>
                 <category android:name="android.intent.category.LAUNCHER"/>
