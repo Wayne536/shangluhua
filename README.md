@@ -1,7 +1,7 @@
 # 入库助手（商陆花 × 微信笔记）
 
-**当前版本：v1.1.2（纯 Socket 抓包代理）**
-安装包：`releases/入库助手-v1.1.2.apk`（约 200 KB）
+**当前版本：v1.1.1（修复抓会话卡启动页）**
+安装包：`releases/入库助手-v1.1.1.apk`
 
 把微信群里发的商品笔记，一条条录进商陆花的货品档案。手机上独立运行，不需要电脑。
 
@@ -23,8 +23,7 @@
 1. 安装 APK
 2. 手机装好 **Shizuku** 并启动服务，给「入库助手」授权
 3. **先把商陆花正常打开到「货品」页面**，等页面显示出来（这一步不挂代理，不会卡）
-4. 回到 App 点「抓取登录会话」→ 看弹窗说明 → 点「开始抓取」→ 切回商陆花，
-   点右下角「＋ 新增货品」（**不用填、不用保存**）或下拉刷新
+4. 回到 App 点「抓取登录会话」→ 看弹窗说明 → 点「开始抓取」→ 切回商陆花下拉刷新
    → 抓到会话后代理会自动关闭（最多等 2 分钟，卡住可回来点「取消抓取」）
 5. 复制微信笔记 → 回到 App 点「粘贴」→ 点「导入到商陆花」
 
@@ -63,7 +62,7 @@ adb install -r build/app.apk
 ```
 
 依赖：JDK 17+、aapt2（build-tools 29）、D8（r8.jar）、API 30 的 android.jar、
-Shizuku 的 api / aidl / provider 三个 aar（`libs/`）。抓包代理是纯 Socket 实现，不需要第三方网络库。
+Shizuku 的 api / aidl / provider 三个 aar（`libs/`），代理相关 jar 在 `libs-proxy/`。
 
 构建脚本默认从 `/root/workspace` 下找 `platform30`、`r8.jar`、`debug.keystore`，
 可用环境变量覆盖：`ANDROID_SDK`、`BUILD_TOOLS`、`ANDROID_JAR`、`R8_JAR`、`KEYSTORE`、`KS_PASS`。
@@ -74,7 +73,7 @@ Shizuku 的 api / aidl / provider 三个 aar（`libs/`）。抓包代理是纯 S
   - `MainActivity` 界面与导入流程
   - `SlhApi` 商陆花接口封装
   - `NoteParser` 笔记解析
-  - `ProxyCatcher` 纯 Socket 抓包代理（CONNECT + HTTP 透传，顺便捞 sessionid）
+  - `ProxyCatcher` / `SessionCatcher` 抓 sessionid
 - `res/` — Material 主题、卡片/按钮背景、矢量图标
 - `docs/screenshot.png` — 界面截图
 - `releases/` — 发布包
