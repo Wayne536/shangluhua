@@ -36,8 +36,6 @@ public class ProxyCatcher {
         System.setProperty("org.slf4j.simpleLogger.showThreadName", "false");
         server = DefaultHttpProxyServer.bootstrap()
                 .withPort(port)
-                .withConnectTimeout(6000)
-                .withIdleConnectionTimeout(30000)
                 .withFiltersSource(new HttpFiltersSourceAdapter() {
                     @Override
                     public HttpFilters filterRequest(HttpRequest request) {
