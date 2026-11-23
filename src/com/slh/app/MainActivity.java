@@ -936,7 +936,11 @@ public class MainActivity extends Activity {
             catcher.start(SessionCatcher.PORT, sid -> {}, msg -> log(msg));
 
             sh("settings put global http_proxy 127.0.0.1:" + SessionCatcher.PORT);
-            log("请切到商陆花 → 打开「货品」页面，再点一下刷新");
+            log("正在重启商陆花，让它重新同步会话…");
+            sh("am force-stop com.slh_mobile_pro");
+            Thread.sleep(800);
+            sh("am start -n com.slh_mobile_pro/.MainActivity");
+            log("已打开商陆花，等它启动并同步（最多 2 分钟）");
             long deadline = System.currentTimeMillis() + 120000;
             while (System.currentTimeMillis() < deadline && catcher.sid() == null) {
                 Thread.sleep(400);
