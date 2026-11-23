@@ -1,6 +1,7 @@
 package com.slh.app;
 
 import android.app.Activity;
+import android.app.AlertDialog;
 import android.content.ClipData;
 import android.content.ClipboardManager;
 import android.content.Intent;
@@ -12,6 +13,9 @@ import android.graphics.Color;
 import android.graphics.Typeface;
 import android.graphics.drawable.Drawable;
 import android.graphics.drawable.GradientDrawable;
+import android.net.ConnectivityManager;
+import android.net.Network;
+import android.net.NetworkCapabilities;
 import android.net.Uri;
 import android.os.Build;
 import android.os.Bundle;
@@ -60,6 +64,7 @@ public class MainActivity extends Activity {
     private EditText input, priceInput;
     private TextView statusPill, countText, imageCount, pasteBtn, clearTextBtn;
     private View importBtn, captureBtn;
+    private TextView captureLabel;
     private TextView pickBtn, clearImgBtn;
     private TextView resultOk, resultSkip, resultFail;
     private View progress;
@@ -71,6 +76,7 @@ public class MainActivity extends Activity {
     private final List<Uri> images = new ArrayList<>();
     private ProxyCatcher catcher;
     private volatile boolean busy;
+    private volatile boolean capturing, cancelCapture;
 
     private final Shizuku.OnRequestPermissionResultListener permListener =
             (requestCode, grantResult) -> {
@@ -337,10 +343,17 @@ public class MainActivity extends Activity {
         content.addView(importBtn, lp1);
 
         captureBtn = bigButton("抓取登录会话", R.drawable.ic_sync, false);
-        captureBtn.setOnClickListener(v -> new Thread(this::captureAndReport).start());
+        captureLabel = (TextView) ((LinearLayout) captureBtn).getChildAt(1);
+        captureBtn.setOnClickListener(v -> onCaptureClick());
         LinearLayout.LayoutParams lp2 = new LinearLayout.LayoutParams(-1, dp(48));
         lp2.topMargin = dp(10);
         content.addView(captureBtn, lp2);
+
+        TextView vpnHint = text("抓会话前请先关闭梯子 / VPN", 11, col(R.color.hint));
+        vpnHint.setGravity(Gravity.CENTER);
+        LinearLayout.LayoutParams lp3 = new LinearLayout.LayoutParams(-1, -2);
+        lp3.topMargin = dp(6);
+        content.addView(vpnHint, lp3);
     }
 
     private void buildResultCard() {
@@ -582,11 +595,10 @@ public class MainActivity extends Activity {
         busy = b;
         ui.post(() -> {
             progress.setVisibility(b ? View.VISIBLE : View.GONE);
-            captureBtn.setEnabled(!b);
             pickBtn.setEnabled(!b);
             pasteBtn.setEnabled(!b);
             clearImgBtn.setEnabled(!b);
-            captureBtn.setAlpha(b ? 0.45f : 1f);
+            refreshCaptureUi();
             pickBtn.setAlpha(b ? 0.45f : 1f);
             pasteBtn.setAlpha(b ? 0.45f : 1f);
             clearImgBtn.setAlpha(b ? 0.45f : 1f);
@@ -888,34 +900,111 @@ public class MainActivity extends Activity {
         }
     }
 
+    private void onCaptureClick() {
+        if (capturing) {
+            cancelCapture = true;
+            snack("正在取消…");
+            return;
+        }
+        if (busy) {
+            snack("正在执行，请稍候");
+            return;
+        }
+        boolean vpn = vpnActive();
+        String title = vpn ? "先关掉梯子再抓" : "第 1 步：先打开商陆花";
+        String msg = vpn
+                ? "检测到梯子 / VPN 正开着。\n\n"
+                        + "抓会话时商陆花的请求要经过代理，开着梯子会卡在启动页。\n\n"
+                        + "请先关掉梯子，把商陆花打开到「货品」页面，"
+                        + "再回来点「我已关掉，开始抓取」。"
+                : "把商陆花切到「货品」页面，等页面正常显示。\n\n"
+                        + "这一步不挂代理，不会卡在启动页。\n\n"
+                        + "准备好后点「开始抓取」，再切回商陆花下拉刷新。";
+        new AlertDialog.Builder(this)
+                .setTitle(title)
+                .setMessage(msg)
+                .setPositiveButton(vpn ? "我已关掉，开始抓取" : "开始抓取", (d, w) -> {
+                    if (vpnActive()) snack("梯子还开着，抓取可能会卡住");
+                    new Thread(this::captureAndReport).start();
+                })
+                .setNegativeButton("取消", null)
+                .show();
+    }
+
+    private void refreshCaptureUi() {
+        if (captureLabel == null) return;
+        captureLabel.setText(capturing ? "取消抓取" : "抓取登录会话");
+        boolean can = capturing || !busy;
+        captureBtn.setEnabled(can);
+        captureBtn.setAlpha(can ? 1f : 0.45f);
+    }
+
+    private boolean shopAppAlive() {
+        try {
+            String out = sh("pidof com.slh_mobile_pro");
+            out = out == null ? "" : out.trim();
+            return out.matches("[0-9\\s]+");
+        } catch (Throwable t) {
+            return false;
+        }
+    }
+
+    /** 抓会话：只在用户确认商陆花已停在货品页后开启代理，抓到立刻关闭 */
     private String captureSession() {
+        if (capturing) return null;
+        capturing = true;
+        cancelCapture = false;
+        ui.post(this::refreshCaptureUi);
+        String sid = null;
         try {
             log("启动代理…");
             if (catcher != null) catcher.stop();
             catcher = new ProxyCatcher();
-            catcher.start(SessionCatcher.PORT, sid -> {}, msg -> log(msg));
+            catcher.start(SessionCatcher.PORT, s -> {}, msg -> log(msg));
 
             sh("settings put global http_proxy 127.0.0.1:" + SessionCatcher.PORT);
-            log("请切到商陆花 → 打开「货品」页面，再点一下刷新");
+            log("第 2 步：代理已开启。请切回商陆花，下拉刷新「货品」页");
+            log("最多等 2 分钟；抓到会话或点「取消抓取」会立刻关闭代理");
             long deadline = System.currentTimeMillis() + 120000;
-            while (System.currentTimeMillis() < deadline && catcher.sid() == null) {
-                Thread.sleep(400);
+            while (System.currentTimeMillis() < deadline
+                    && catcher.sid() == null && !cancelCapture) {
+                Thread.sleep(300);
             }
-            String sid = catcher.sid();
+            sid = catcher.sid();
             sh("settings put global http_proxy :0");
-            catcher.stop();
+            try { catcher.stop(); } catch (Throwable ignored) {}
             if (sid != null) {
                 sp.edit().putString("sid", sid).apply();
-                log("✅ 会话已更新：" + sid.substring(0, Math.min(22, sid.length())) + "…");
+                log("✅ 会话已更新，代理已关闭："
+                        + sid.substring(0, Math.min(22, sid.length())) + "…");
+            } else if (cancelCapture) {
+                log("已取消抓取，代理已关闭");
             } else {
-                log("❌ 没抓到：确认商陆花已打开货品页并刷新，再点一次抓会话");
+                log("❌ 没抓到：确认商陆花停在「货品」页并下拉刷新；代理已关闭");
             }
-            return sid;
         } catch (Throwable t) {
-            sh("settings put global http_proxy :0");
+            try { sh("settings put global http_proxy :0"); } catch (Throwable ignored) {}
+            if (catcher != null) { try { catcher.stop(); } catch (Throwable ignored) {} }
             log("❌ 抓会话失败：" + t);
-            return null;
+            sid = null;
+        } finally {
+            capturing = false;
+            ui.post(this::refreshCaptureUi);
         }
+        return sid;
+    }
+
+    /** 开着梯子时本机 DNS 会返回 fake-ip，抓包代理连不上，商陆花会卡启动页 */
+    private boolean vpnActive() {
+        try {
+            ConnectivityManager cm = (ConnectivityManager) getSystemService(CONNECTIVITY_SERVICE);
+            if (cm == null) return false;
+            for (Network n : cm.getAllNetworks()) {
+                NetworkCapabilities c = cm.getNetworkCapabilities(n);
+                if (c != null && c.hasTransport(NetworkCapabilities.TRANSPORT_VPN)) return true;
+            }
+        } catch (Throwable ignored) {}
+        return false;
     }
 
     private void captureAndReport() {
@@ -923,10 +1012,11 @@ public class MainActivity extends Activity {
             snack("正在执行，请稍候");
             return;
         }
-        setBusy(true, "等待商陆花请求…");
+        setBusy(true, "等待刷新…");
         try {
             String sid = captureSession();
-            snack(sid != null ? "会话已更新" : "没抓到会话，请再试一次");
+            if (cancelCapture) snack("已取消抓取，代理已关闭");
+            else snack(sid != null ? "会话已更新，代理已关闭" : "没抓到会话，请按步骤再试");
         } finally {
             setBusy(false, null);
         }
@@ -973,17 +1063,23 @@ public class MainActivity extends Activity {
             try {
                 r = runImport(notes, price);
             } catch (SlhApi.SessionExpired e) {
-                log("⚠ 会话失效，自动重连…");
-                String sid = captureSession();
-                if (sid != null) {
-                    try {
-                        r = runImport(notes, price);
-                    } catch (Throwable t) {
-                        log("✘ 重连后仍失败：" + t);
+                log("⚠ 会话失效");
+                if (!shopAppAlive()) {
+                    log("请先打开商陆花到「货品」页，再点「抓取登录会话」，然后重新导入");
+                    r = new int[]{0, 0, notes.size()};
+                } else {
+                    log("商陆花在后台：切过去打开「货品」页刷新，抓到会话会自动继续");
+                    String sid = captureSession();
+                    if (sid != null) {
+                        try {
+                            r = runImport(notes, price);
+                        } catch (Throwable t) {
+                            log("✘ 重连后仍失败：" + t);
+                            r = new int[]{0, 0, notes.size()};
+                        }
+                    } else {
                         r = new int[]{0, 0, notes.size()};
                     }
-                } else {
-                    r = new int[]{0, 0, notes.size()};
                 }
             } catch (Throwable t) {
                 log("✘ 出错：" + t);
@@ -1020,7 +1116,12 @@ public class MainActivity extends Activity {
         try {
             colors = api.colors();
         } catch (SlhApi.SessionExpired e) {
-            log("⚠ 会话失效，自动重新抓取…");
+            log("⚠ 会话失效");
+            if (!shopAppAlive()) {
+                log("请先打开商陆花到「货品」页，再点「抓取登录会话」，然后重新导入");
+                return new int[]{0, 0, notes.size()};
+            }
+            log("商陆花在后台：切过去刷新「货品」页，抓到会话会自动继续");
             sid = captureSession();
             if (sid == null) {
                 log("✘ 重抓失败，请手动点「抓取登录会话」");
