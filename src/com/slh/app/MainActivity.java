@@ -17,6 +17,7 @@ import android.net.ConnectivityManager;
 import android.net.Network;
 import android.net.NetworkCapabilities;
 import android.net.Uri;
+import android.net.VpnService;
 import android.os.Build;
 import android.os.Bundle;
 import android.os.Handler;
@@ -56,6 +57,7 @@ public class MainActivity extends Activity {
 
     private static final int REQ_IMAGES = 2001;
     private static final int REQ_SHIZUKU = 1001;
+    private static final int REQ_VPN = 2002;
     private static final int LV_INFO = 0, LV_OK = 1, LV_WARN = 2, LV_ERR = 3;
 
     private SharedPreferences sp;
@@ -74,7 +76,7 @@ public class MainActivity extends Activity {
     private TextView snackbar, logEmpty;
 
     private final List<Uri> images = new ArrayList<>();
-    private ProxyCatcher catcher;
+    private boolean pendingCapture;
     private volatile boolean busy;
     private volatile boolean capturing, cancelCapture;
 
@@ -560,19 +562,11 @@ public class MainActivity extends Activity {
         ui.post(() -> {
             if (busy) return;
             try {
-                if (!Shizuku.pingBinder()) {
-                    setPill("● Shizuku 未运行", col(R.color.error), col(R.color.error_soft));
-                    return;
-                }
-                if (Shizuku.checkSelfPermission() != 0) {
-                    setPill("● 待授权", col(R.color.warn), col(R.color.warn_soft));
-                    return;
-                }
                 String sid = sp.getString("sid", "");
-                if (sid == null || sid.isEmpty()) {
-                    setPill("● 待抓会话", col(R.color.primary), col(R.color.primary_soft));
-                } else {
+                if (sid != null && !sid.isEmpty()) {
                     setPill("● 已就绪", col(R.color.success), col(R.color.success_soft));
+                } else {
+                    setPill("● 待抓会话", col(R.color.primary), col(R.color.primary_soft));
                 }
             } catch (Throwable t) {
                 setPill("● 状态未知", col(R.color.warn), col(R.color.warn_soft));
@@ -665,12 +659,6 @@ public class MainActivity extends Activity {
         try {
             Shizuku.removeRequestPermissionResultListener(permListener);
         } catch (Throwable ignored) {}
-        // 抓会话途中退出时，别把系统代理留在 127.0.0.1，否则整机没网
-        final ProxyCatcher c = catcher;
-        if (c != null) {
-            c.stop();
-            new Thread(() -> sh("settings put global http_proxy :0")).start();
-        }
     }
 
     // ================= 提示 / 日志 =================
@@ -808,6 +796,11 @@ public class MainActivity extends Activity {
     @Override
     protected void onActivityResult(int req, int res, Intent data) {
         super.onActivityResult(req, res, data);
+        if (req == REQ_VPN) {
+            if (res == RESULT_OK) new Thread(this::captureAndReport).start();
+            else snack("没有授权 VPN，抓不了会话");
+            return;
+        }
         if (req != REQ_IMAGES || res != RESULT_OK || data == null) return;
         images.clear();
         if (data.getClipData() != null) {
@@ -919,25 +912,39 @@ public class MainActivity extends Activity {
             snack("正在执行，请稍候");
             return;
         }
-        boolean vpn = vpnActive();
-        String title = vpn ? "先关掉梯子再抓" : "第 1 步：先打开商陆花";
-        String msg = vpn
-                ? "检测到梯子 / VPN 正开着。\n\n"
-                        + "抓会话时商陆花的请求要经过代理，开着梯子会卡在启动页。\n\n"
-                        + "请先关掉梯子，把商陆花打开到「货品」页面，"
-                        + "再回来点「我已关掉，开始抓取」。"
-                : "把商陆花切到「货品」页面，等页面正常显示。\n\n"
-                        + "这一步不挂代理，不会卡在启动页。\n\n"
-                        + "准备好后点「开始抓取」，再切回商陆花下拉刷新。";
+        if (vpnActive()) {
+            new AlertDialog.Builder(this)
+                    .setTitle("先关掉梯子再抓")
+                    .setMessage("检测到其他 VPN / 梯子正开着。\n\n"
+                            + "本功能会开一个只代理商陆花的本地 VPN，同一时间只能有一个 VPN。\n\n"
+                            + "请先关掉梯子再试。")
+                    .setPositiveButton("知道了", null)
+                    .show();
+            return;
+        }
         new AlertDialog.Builder(this)
-                .setTitle(title)
-                .setMessage(msg)
-                .setPositiveButton(vpn ? "我已关掉，开始抓取" : "开始抓取", (d, w) -> {
-                    if (vpnActive()) snack("梯子还开着，抓取可能会卡住");
-                    new Thread(this::captureAndReport).start();
-                })
+                .setTitle("用 VPN 抓会话")
+                .setMessage("将开启一个只代理商陆花的本地 VPN，不影响其他应用，也不需要 Shizuku。\n\n"
+                        + "开启后请把商陆花完全关掉再重新打开，进入「货品」页刷新。\n\n"
+                        + "抓到会话会自动关闭 VPN，最多等 2 分钟。")
+                .setPositiveButton("开始抓取", (d, w) -> startVpnCapture())
                 .setNegativeButton("取消", null)
                 .show();
+    }
+
+    private void startVpnCapture() {
+        try {
+            Intent prep = VpnService.prepare(this);
+            if (prep != null) {
+                pendingCapture = true;
+                startActivityForResult(prep, REQ_VPN);
+                return;
+            }
+        } catch (Throwable t) {
+            snack("检查 VPN 权限失败：" + t.getMessage());
+            return;
+        }
+        new Thread(this::captureAndReport).start();
     }
 
     private void refreshCaptureUi() {
@@ -948,17 +955,7 @@ public class MainActivity extends Activity {
         captureBtn.setAlpha(can ? 1f : 0.45f);
     }
 
-    private boolean shopAppAlive() {
-        try {
-            String out = sh("pidof com.slh_mobile_pro");
-            out = out == null ? "" : out.trim();
-            return out.matches("[0-9\\s]+");
-        } catch (Throwable t) {
-            return false;
-        }
-    }
-
-    /** 抓会话：只在用户确认商陆花已停在货品页后开启代理，抓到立刻关闭 */
+    /** 只把商陆花放进 VPN，并把它的 HTTP 请求指向本机代理；不需要 Shizuku */
     private String captureSession() {
         if (capturing) return null;
         capturing = true;
@@ -966,44 +963,43 @@ public class MainActivity extends Activity {
         ui.post(this::refreshCaptureUi);
         String sid = null;
         try {
-            log("启动代理…");
-            if (catcher != null) catcher.stop();
-            catcher = new ProxyCatcher();
-            catcher.start(SessionCatcher.PORT, s -> {}, msg -> log(msg));
-
-            sh("settings put global http_proxy 127.0.0.1:" + SessionCatcher.PORT);
-            log("第 2 步：代理已开启。请切回商陆花，下拉刷新「货品」页");
-            log("最多等 2 分钟；抓到会话或点「取消抓取」会立刻关闭代理");
+            CaptureVpnService.capturedSid = null;
+            log("开启只代理商陆花的 VPN…");
+            Intent svc = new Intent(this, CaptureVpnService.class)
+                    .setAction(CaptureVpnService.ACTION_START);
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) startForegroundService(svc);
+            else startService(svc);
+            log("请打开商陆花并刷新「货品」页；抓到会自动关闭 VPN");
             long deadline = System.currentTimeMillis() + 120000;
             while (System.currentTimeMillis() < deadline
-                    && catcher.sid() == null && !cancelCapture) {
+                    && CaptureVpnService.capturedSid == null && !cancelCapture) {
                 Thread.sleep(300);
             }
-            sid = catcher.sid();
-            sh("settings put global http_proxy :0");
-            try { catcher.stop(); } catch (Throwable ignored) {}
+            sid = CaptureVpnService.capturedSid;
             if (sid != null) {
                 sp.edit().putString("sid", sid).apply();
-                log("✅ 会话已更新，代理已关闭："
+                log("✅ 会话已更新，VPN 已关闭："
                         + sid.substring(0, Math.min(22, sid.length())) + "…");
             } else if (cancelCapture) {
-                log("已取消抓取，代理已关闭");
+                log("已取消抓取，VPN 已关闭");
             } else {
-                log("❌ 没抓到：确认商陆花停在「货品」页并下拉刷新；代理已关闭");
+                log("❌ 没抓到：确认商陆花已重新打开并刷新「货品」页；VPN 已关闭");
             }
         } catch (Throwable t) {
-            try { sh("settings put global http_proxy :0"); } catch (Throwable ignored) {}
-            if (catcher != null) { try { catcher.stop(); } catch (Throwable ignored) {} }
             log("❌ 抓会话失败：" + t);
             sid = null;
         } finally {
+            try {
+                stopService(new Intent(this, CaptureVpnService.class));
+            } catch (Throwable ignored) {
+            }
             capturing = false;
             ui.post(this::refreshCaptureUi);
         }
         return sid;
     }
 
-    /** 开着梯子时本机 DNS 会返回 fake-ip，抓包代理连不上，商陆花会卡启动页 */
+    /** 开着梯子时本机 DNS 会返回 fake-ip，和只代理商陆花的 VPN 也冲突 */
     private boolean vpnActive() {
         try {
             ConnectivityManager cm = (ConnectivityManager) getSystemService(CONNECTIVITY_SERVICE);
@@ -1021,11 +1017,11 @@ public class MainActivity extends Activity {
             snack("正在执行，请稍候");
             return;
         }
-        setBusy(true, "等待刷新…");
+        setBusy(true, "等待商陆花…");
         try {
             String sid = captureSession();
-            if (cancelCapture) snack("已取消抓取，代理已关闭");
-            else snack(sid != null ? "会话已更新，代理已关闭" : "没抓到会话，请按步骤再试");
+            if (cancelCapture) snack("已取消抓取");
+            else snack(sid != null ? "会话已更新，VPN 已关闭" : "没抓到会话，请重试");
         } finally {
             setBusy(false, null);
         }
@@ -1033,8 +1029,7 @@ public class MainActivity extends Activity {
 
     private String session() {
         String sid = sp.getString("sid", null);
-        if (sid == null || sid.isEmpty()) sid = captureSession();
-        return sid;
+        return (sid == null || sid.isEmpty()) ? null : sid;
     }
 
     // ================= 导入 =================
@@ -1072,24 +1067,8 @@ public class MainActivity extends Activity {
             try {
                 r = runImport(notes, price);
             } catch (SlhApi.SessionExpired e) {
-                log("⚠ 会话失效");
-                if (!shopAppAlive()) {
-                    log("请先打开商陆花到「货品」页，再点「抓取登录会话」，然后重新导入");
-                    r = new int[]{0, 0, notes.size()};
-                } else {
-                    log("商陆花在后台：切过去打开「货品」页刷新，抓到会话会自动继续");
-                    String sid = captureSession();
-                    if (sid != null) {
-                        try {
-                            r = runImport(notes, price);
-                        } catch (Throwable t) {
-                            log("✘ 重连后仍失败：" + t);
-                            r = new int[]{0, 0, notes.size()};
-                        }
-                    } else {
-                        r = new int[]{0, 0, notes.size()};
-                    }
-                }
+                log("⚠ 会话失效，请到主界面点「抓取登录会话」重新抓取，然后重新导入");
+                r = new int[]{0, 0, notes.size()};
             } catch (Throwable t) {
                 log("✘ 出错：" + t);
                 r = new int[]{0, 0, Math.max(1, notes.size())};
@@ -1125,19 +1104,8 @@ public class MainActivity extends Activity {
         try {
             colors = api.colors();
         } catch (SlhApi.SessionExpired e) {
-            log("⚠ 会话失效");
-            if (!shopAppAlive()) {
-                log("请先打开商陆花到「货品」页，再点「抓取登录会话」，然后重新导入");
-                return new int[]{0, 0, notes.size()};
-            }
-            log("商陆花在后台：切过去刷新「货品」页，抓到会话会自动继续");
-            sid = captureSession();
-            if (sid == null) {
-                log("✘ 重抓失败，请手动点「抓取登录会话」");
-                return new int[]{0, 0, notes.size()};
-            }
-            api = new SlhApi(sid);
-            colors = api.colors();
+            log("⚠ 会话失效，请到主界面点「抓取登录会话」重新抓取，然后重新导入");
+            return new int[]{0, 0, notes.size()};
         }
         Map<String, JSONObject> sizes = api.sizes();
         List<String> codes = api.codes();

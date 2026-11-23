@@ -1,7 +1,7 @@
 # 入库助手（商陆花 × 微信笔记）
 
-**当前版本：v1.1.5（设置页 + GitHub 更新）**
-安装包：`releases/入库助手-v1.1.5.apk`
+**当前版本：v1.1.6（VpnService 抓会话，不依赖 Shizuku）**
+安装包：`releases/入库助手-v1.1.6.apk`
 
 把微信群里发的商品笔记，一条条录进商陆花的货品档案。手机上独立运行，不需要电脑。
 
@@ -19,7 +19,8 @@
 - 最多 9 张图片，随货品一起上传
 - 会话抓取一次长期保存；失效自动重抓
 - 本次结果、逐条日志、失败原因，界面里直接看
-- 设置页：权限管理（Shizuku / 悬浮窗 / 通知 / 电池白名单）、GitHub 检查更新、下载安装
+- 设置页：权限管理（Shizuku 可选 / 悬浮窗 / 通知 / 电池白名单）、GitHub 检查更新、下载安装
+- 抓会话用只代理商陆花的本地 VPN，**不需要 Shizuku**，也不改系统全局代理
 
 ## 快速开始
 
@@ -78,6 +79,7 @@ Shizuku 的 api / aidl / provider 三个 aar（`libs/`），代理相关 jar 在
   - `NoteParser` 笔记解析
   - `ProxyCatcher` / `SessionCatcher` 抓 sessionid
   - `SettingsActivity` 设置、权限与 GitHub 更新
+  - `CaptureVpnService` 只代理商陆花的 VpnService 抓会话
 - `res/` — Material 主题、卡片/按钮背景、矢量图标
 - `docs/screenshot.png` — 界面截图
 - `releases/` — 发布包
