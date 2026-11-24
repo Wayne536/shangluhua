@@ -86,6 +86,9 @@ public class MainActivity extends Activity {
     /** 上次自动填进输入框的剪贴板内容，避免反复覆盖 */
     private String lastAutoFill = "";
     private boolean pickingImages;
+    /** 长按后进入编辑：缩略图上出现 ⛔，可删可拖 */
+    private boolean editMode;
+    private TextView imgHint, editDoneBtn;
     private volatile boolean busy;
     private volatile boolean capturing, cancelCapture;
 
@@ -333,6 +336,15 @@ public class MainActivity extends Activity {
         imgRow.addView(imageCount, clp);
         imgRow.addView(spacer(), new LinearLayout.LayoutParams(0, 1, 1f));
 
+        editDoneBtn = textButton("完成", 0);
+        editDoneBtn.setVisibility(View.GONE);
+        editDoneBtn.setOnClickListener(v -> {
+            editMode = false;
+            rebuildThumbs();
+            snack("已退出编辑");
+        });
+        imgRow.addView(editDoneBtn);
+
         clearImgBtn = textButton("清空", 0);
         clearImgBtn.setVisibility(View.GONE);
         clearImgBtn.setOnClickListener(v -> {
@@ -357,10 +369,10 @@ public class MainActivity extends Activity {
         tlp.topMargin = dp(10);
         card.addView(thumbScroll, tlp);
 
-        TextView hint = text("最多 9 张 · 点一下看大图 · 长按拖动排序", 11, col(R.color.hint));
+        imgHint = text("最多 9 张 · 点一下看大图 · 长按进入编辑（删除/排序）", 11, col(R.color.hint));
         LinearLayout.LayoutParams hlp = new LinearLayout.LayoutParams(-2, -2);
         hlp.topMargin = dp(8);
-        card.addView(hint, hlp);
+        card.addView(imgHint, hlp);
 
         content.addView(card);
     }
@@ -959,6 +971,7 @@ public class MainActivity extends Activity {
         ui.post(() -> {
             thumbRow.removeAllViews();
             if (images.isEmpty()) {
+                editMode = false;
                 thumbScroll.setVisibility(View.GONE);
                 clearImgBtn.setVisibility(View.GONE);
                 imageCount.setText("未选");
@@ -993,7 +1006,10 @@ public class MainActivity extends Activity {
                 ilp.topMargin = dp(10);
                 box.addView(iv, ilp);
 
-                box.setOnClickListener(v -> openImagePreview(u));
+                box.setOnClickListener(v -> {
+                    if (editMode) return;
+                    openImagePreview(u);
+                });
                 box.setOnLongClickListener(v -> {
                     startThumbDrag(v);
                     return true;
@@ -1006,7 +1022,8 @@ public class MainActivity extends Activity {
                 loadThumb(u, iv);
             }
 
-            if (images.size() < 9) {
+            refreshEditUi();
+            if (!editMode && images.size() < 9) {
                 TextView add = text("＋", 22, col(R.color.hint));
                 add.setGravity(Gravity.CENTER);
                 add.setBackgroundResource(R.drawable.bg_thumb);
@@ -1036,23 +1053,23 @@ public class MainActivity extends Activity {
         @Override
         protected void dispatchDraw(android.graphics.Canvas canvas) {
             super.dispatchDraw(canvas);
-            if (onDelete == null) return;
+            if (onDelete == null || !editMode) return;
             android.graphics.Paint p = new android.graphics.Paint(
                     android.graphics.Paint.ANTI_ALIAS_FLAG);
-            float r = dp(11);
+            float r = dp(9);
             float cx = dp(10), cy = dp(10);
             p.setColor(0xFFFF3B30);
             canvas.drawCircle(cx, cy, r, p);
             p.setColor(Color.WHITE);
-            canvas.drawRoundRect(cx - r * 0.48f, cy - dp(1.7f),
-                    cx + r * 0.48f, cy + dp(1.7f), dp(2), dp(2), p);
+            canvas.drawRoundRect(cx - r * 0.5f, cy - dp(1.4f),
+                    cx + r * 0.5f, cy + dp(1.4f), dp(1.6f), dp(1.6f), p);
         }
 
         @Override
         public boolean onTouchEvent(android.view.MotionEvent e) {
             switch (e.getActionMasked()) {
                 case android.view.MotionEvent.ACTION_DOWN:
-                    badgeDown = onDelete != null && inBadge(e.getX(), e.getY());
+                    badgeDown = editMode && onDelete != null && inBadge(e.getX(), e.getY());
                     if (badgeDown) return true;
                     return super.onTouchEvent(e);
                 case android.view.MotionEvent.ACTION_UP:
@@ -1114,6 +1131,13 @@ public class MainActivity extends Activity {
         dragFrom = dragTo = idx;
         dragView = v;
         draggingThumb = true;
+        if (!editMode) {
+            editMode = true;
+            refreshEditUi();
+            for (int i = 0; i < thumbRow.getChildCount(); i++) {
+                thumbRow.getChildAt(i).invalidate();
+            }
+        }
         v.animate().scaleX(1.08f).scaleY(1.08f).setDuration(90).start();
         v.setTranslationZ(dp(6));
         v.performHapticFeedback(android.view.HapticFeedbackConstants.LONG_PRESS);
@@ -1167,6 +1191,24 @@ public class MainActivity extends Activity {
             snack("顺序已调整");
         }
         rebuildThumbs();
+    }
+
+    private void refreshEditUi() {
+        if (editDoneBtn != null) {
+            editDoneBtn.setVisibility(editMode ? View.VISIBLE : View.GONE);
+        }
+        if (pickBtn != null) {
+            pickBtn.setVisibility(editMode ? View.GONE : View.VISIBLE);
+        }
+        if (clearImgBtn != null) {
+            clearImgBtn.setVisibility(!editMode && !images.isEmpty()
+                    ? View.VISIBLE : View.GONE);
+        }
+        if (imgHint != null) {
+            imgHint.setText(editMode
+                    ? "点左上角 ⛔ 删除 · 拖动排序 · 点「完成」退出"
+                    : "最多 9 张 · 点一下看大图 · 长按进入编辑（删除/排序）");
+        }
     }
 
     private void openImagePreview(Uri u) {
