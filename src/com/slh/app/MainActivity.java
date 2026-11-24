@@ -971,6 +971,8 @@ public class MainActivity extends Activity {
             for (int i = 0; i < images.size(); i++) {
                 final Uri u = images.get(i);
                 FrameLayout box = new FrameLayout(this);
+                box.setClipChildren(false);
+                box.setClipToPadding(false);
                 box.setClickable(true);
                 box.setContentDescription("第 " + (i + 1) + " 张，点一下看大图，长按拖动排序");
 
@@ -980,21 +982,27 @@ public class MainActivity extends Activity {
                 iv.setClipToOutline(true);
                 box.addView(iv, new FrameLayout.LayoutParams(-1, -1));
 
-                TextView del = new TextView(this);
-                del.setText("×");
-                del.setTextColor(Color.WHITE);
-                del.setTextSize(13);
-                del.setTypeface(Typeface.DEFAULT_BOLD);
-                del.setGravity(Gravity.CENTER);
-                GradientDrawable red = new GradientDrawable();
-                red.setColor(col(R.color.error));
-                red.setCornerRadius(dp(5));
-                del.setBackground(red);
+                // iOS 卸载标：红色圆 + 白色横杠，压在左上角
+                View del = new View(this) {
+                    @Override
+                    protected void onDraw(android.graphics.Canvas c) {
+                        android.graphics.Paint p = new android.graphics.Paint(
+                                android.graphics.Paint.ANTI_ALIAS_FLAG);
+                        float r = getWidth() / 2f;
+                        p.setColor(0xFFFF3B30);
+                        c.drawCircle(r, r, r - dp(1), p);
+                        p.setColor(Color.WHITE);
+                        float hw = getWidth() * 0.24f;
+                        float hh = dp(1.7f);
+                        c.drawRoundRect(r - hw, r - hh, r + hw, r + hh, hh, hh, p);
+                    }
+                };
                 del.setContentDescription("删除这张");
-                FrameLayout.LayoutParams dlp = new FrameLayout.LayoutParams(dp(18), dp(18),
-                        Gravity.TOP | Gravity.END);
-                dlp.topMargin = dp(2);
-                dlp.rightMargin = dp(2);
+                del.setClickable(true);
+                FrameLayout.LayoutParams dlp = new FrameLayout.LayoutParams(dp(20), dp(20),
+                        Gravity.TOP | Gravity.START);
+                dlp.leftMargin = dp(1);
+                dlp.topMargin = dp(1);
                 box.addView(del, dlp);
                 del.setOnClickListener(v -> {
                     images.remove(u);
