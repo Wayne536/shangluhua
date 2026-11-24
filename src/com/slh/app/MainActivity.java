@@ -584,6 +584,12 @@ public class MainActivity extends Activity {
         });
     }
 
+    private void setCaptureHint(final String s) {
+        ui.post(() -> {
+            if (captureHint != null && s != null) captureHint.setText(s);
+        });
+    }
+
     /** 按 Shizuku 是否可用，把抓会话按钮切成「自动 / 手动」 */
     private void refreshCaptureMode() {
         boolean auto = AutoCapture.available();
@@ -592,8 +598,8 @@ public class MainActivity extends Activity {
         }
         if (captureHint != null) {
             captureHint.setText(auto
-                    ? "Shizuku 已授权 · 自动开商陆花 → 货品 → 下拉刷新"
-                    : "未授权 Shizuku · 手动两步抓取（先关梯子 / VPN）");
+                    ? "Shizuku 已授权 · 一键自动抓取，约 2 秒"
+                    : "未授权 Shizuku · 手动抓取（可开小窗，先关梯子 / VPN）");
         }
     }
 
@@ -953,11 +959,11 @@ public class MainActivity extends Activity {
             new AlertDialog.Builder(this)
                     .setTitle("自动抓取会话")
                     .setMessage("会依次自动完成：\n\n"
-                            + "1. 打开商陆花，自动点进「货品」页\n"
-                            + "2. 临时把系统代理指向本机（只这几秒）\n"
-                            + "3. 下拉刷新，抓到会话\n"
-                            + "4. 立刻恢复代理，切回入库助手\n\n"
-                            + "全程约 25 秒，手机会自动切到商陆花再切回来。")
+                            + "1. 临时把系统代理指向本机\n"
+                            + "2. 冷启动商陆花，并在它启动前就掐断加密隧道\n"
+                            + "3. 启动时的接口请求走明文，直接带出 sessionid\n"
+                            + "4. 校验这个会话能用，立刻恢复代理、切回来\n\n"
+                            + "全程约 2 秒，商陆花只闪一下。")
                     .setPositiveButton("开始", (d, w) -> startVpnCapture(true))
                     .setNeutralButton("手动", (d, w) -> startVpnCapture(false))
                     .setNegativeButton("取消", null)
@@ -965,11 +971,14 @@ public class MainActivity extends Activity {
             return;
         }
         AlertDialog.Builder b = new AlertDialog.Builder(this)
-                .setTitle("用 VPN 抓会话")
-                .setMessage("将开启一个只代理商陆花的本地 VPN，不影响其他应用。\n\n"
-                        + "开启后请把商陆花切到「货品」页并下拉刷新。\n\n"
-                        + "抓到会话会自动关闭 VPN，最多等 2 分钟。\n\n"
-                        + "装上 Shizuku 并授权后，这几步可以全自动完成。")
+                .setTitle("手动抓会话")
+                .setMessage("会开一个只代理商陆花的本地 VPN，不影响其他应用。\n\n"
+                        + "1. 把商陆花开成小窗：最近任务里长按「商陆花」→ 小窗\n"
+                        + "   （没有小窗就直接切过去，也行）\n"
+                        + "2. 点一下「货品」卡片，或下拉刷新一次\n"
+                        + "3. 抓到会话自动关 VPN，最多等 2 分钟\n\n"
+                        + "用小窗的话可以一直留在入库助手，抓到立刻显示在这里。\n"
+                        + "授权 Shizuku 后这些都能全自动。")
                 .setPositiveButton("开始抓取", (d, w) -> startVpnCapture(false))
                 .setNegativeButton("取消", null);
         try {
@@ -1031,7 +1040,8 @@ public class MainActivity extends Activity {
                 log("自动刷新「货品」页，等会话…");
                 onVpnReady.run();
             } else {
-                log("请打开商陆花并刷新「货品」页；抓到会自动关闭 VPN");
+                log("把商陆花开成小窗，点一下「货品」；抓到会自动关闭 VPN");
+                setCaptureHint("抓取中：在商陆花小窗里点一下「货品」");
             }
             long deadline = System.currentTimeMillis() + waitSeconds * 1000L;
             while (System.currentTimeMillis() < deadline
@@ -1058,6 +1068,7 @@ public class MainActivity extends Activity {
             }
             capturing = false;
             ui.post(this::refreshCaptureUi);
+            ui.post(this::refreshCaptureMode);
         }
         return sid;
     }
@@ -1125,7 +1136,7 @@ public class MainActivity extends Activity {
         AutoCapture ac = new AutoCapture(this::log);
         String sidPath = "/data/local/tmp/slh_sid.txt";
         String smLog = "/data/local/tmp/slh_auto.log";
-        log("自动抓取：商陆花会自己打开、点进「货品」页");
+        log("自动抓取：打开商陆花，从启动请求里取会话");
         statusBusy("自动抓会话…");
 
         String cmd = "rm -f " + sidPath + " " + smLog + "; "

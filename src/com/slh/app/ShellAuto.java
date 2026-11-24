@@ -14,10 +14,11 @@ public class ShellAuto {
     static final String SID_PATH = "/data/local/tmp/slh_sid.txt";
     static final String POS_PATH = "/data/local/tmp/slh_goods_pos";
     static final String LOG_PATH = "/data/local/tmp/slh_auto.log";
-    static final int PORT = 8899;
 
     /** 抓到（或失败）之后，主线程还在下拉就不要再继续了 */
     private static final AtomicBoolean done = new AtomicBoolean(false);
+    /** 正在校验会话，避免并发重复校验 */
+    private static final AtomicBoolean verifying = new AtomicBoolean(false);
 
     public static void main(String[] args) {
         final boolean failTest = args != null && args.length > 0 && "failup".equals(args[0]);
@@ -27,24 +28,28 @@ public class ShellAuto {
         try {
             ac.sh("wm dismiss-keyguard");
             ac.sh("settings put global http_proxy :0");
-            // 代理要先挂上：商陆花启动时建的数据隧道才会经过这里，后面才能掐断
             proxy = new ProxyCatcher();
-            proxy.start(PORT, sid -> onFound(ac, sid), ShellAuto::say);
-            ac.sh("settings put global http_proxy 127.0.0.1:" + PORT);
+            int port = proxy.startAuto(sid -> onFound(ac, sid), ShellAuto::say);
+            ac.sh("settings put global http_proxy 127.0.0.1:" + port);
+            // 启动前就掐断隧道：商陆花启动时的接口请求直接走明文，常常 1-2 秒就带出会话
+            ProxyCatcher.blockDataTunnel = true;
+            if (failTest) {
+                ProxyCatcher.testFailUpstream = true;
+                say("自测模式：上游全部连不上");
+            }
 
             if (!ac.launch()) {
                 fail(ac, proxy, "商陆花没打开");
                 return;
             }
-            // 先切到明文：点开「货品」时页面加载本身就走明文接口，可能不用再下拉
-            proxy.killDataTunnels();
-            ProxyCatcher.blockDataTunnel = true;
-            sleep(300);
-            if (failTest) {
-                ProxyCatcher.testFailUpstream = true;
-                say("自测模式：从现在起上游全部连不上");
+            // onFound 里校验通过才会置 done
+            if (waitFound(6000)) {
+                sleep(600);
+                return;
             }
 
+            say("启动请求没带出会话，点进货品页再等");
+            proxy.killDataTunnels();
             int[] cachedPos = readPos();
             if (cachedPos != null) {
                 say("直接点上次记下的「货品」位置");
@@ -52,20 +57,21 @@ public class ShellAuto {
             } else {
                 ac.openGoods(false);
             }
-            if (waitFound(5000)) {
-                sleep(4000);
+            if (waitFound(8000)) {
+                sleep(600);
                 return;
             }
-            say("页面加载没带出来，补下拉刷新…");
-            if (pullUntilFound(ac, 4)) {
-                sleep(4000); // 等收尾线程把界面切回去（主线程一返回进程就退出）
+
+            say("还没带出来，补下拉刷新…");
+            if (pullUntilFound(ac, 3)) {
+                sleep(600);
                 return;
             }
             say("没抓到，重新开一次商陆花、确认货品页再补");
             ac.launch();
             ac.openGoods(true);
             if (pullUntilFound(ac, 2)) {
-                sleep(4000);
+                sleep(600);
                 return;
             }
             fail(ac, proxy, "没抓到会话");
@@ -77,6 +83,15 @@ public class ShellAuto {
 
     /** 抓到会话：立刻落盘 + 恢复系统代理，再切回 App 退出 */
     private static void onFound(final AutoCapture ac, final String sid) {
+        if (done.get() || verifying.get()) return;
+        verifying.set(true);
+        boolean ok;
+        try {
+            ok = verify(sid);
+        } finally {
+            verifying.set(false);
+        }
+        if (!ok) return;
         if (!done.compareAndSet(false, true)) return;
         say("抓到 sessionid: " + mask(sid));
         write(SID_PATH, sid);
@@ -97,6 +112,22 @@ public class ShellAuto {
         }, "slh-back");
         // 不能设成守护线程：主线程一返回，进程就退出了，App 还没被切回来
         t.start();
+    }
+
+    /** 校验抓到的 sessionid 真能调接口（启动阶段的请求有时带的是别的 token） */
+    private static boolean verify(String sid) {
+        try {
+            java.util.Map<String, org.json.JSONObject> colors = new SlhApi(sid).colors();
+            if (colors == null || colors.isEmpty()) {
+                say("校验：接口没返回颜色，先当无效");
+                return false;
+            }
+            say("校验通过（" + colors.size() + " 个颜色）");
+            return true;
+        } catch (Throwable t) {
+            say("校验失败：" + t);
+            return false;
+        }
     }
 
     private static boolean waitFound(long ms) {

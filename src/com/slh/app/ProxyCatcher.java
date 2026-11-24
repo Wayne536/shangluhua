@@ -30,6 +30,8 @@ public class ProxyCatcher {
     public interface Log { void log(String s); }
 
     public static final int PORT = 8899;
+    /** 8899 被占用时依次往后试，避免抓包直接失败 */
+    public static final int[] PORTS = {8899, 8900, 8901};
 
     /** 抓会话时拦截商陆花的数据隧道，逼它回退到明文 HTTP 接口 */
     public static volatile boolean blockDataTunnel = false;
@@ -62,6 +64,23 @@ public class ProxyCatcher {
             tunnels.clear();
         }
         log("已断开商陆花数据隧道");
+    }
+
+    /** 从 8899 开始找空闲端口，返回实际用上的端口 */
+    public int startAuto(Found found, Log log) throws Exception {
+        Exception last = null;
+        for (int p : PORTS) {
+            try {
+                start(p, found, log);
+                return p;
+            } catch (Exception e) {
+                last = e;
+                closeQuietly(server);
+                server = null;
+                log.log("端口 " + p + " 被占用，换下一个");
+            }
+        }
+        throw last == null ? new Exception("没有可用端口") : last;
     }
 
     public void start(int port, Found found, Log log) throws Exception {

@@ -35,6 +35,7 @@ public class CaptureVpnService extends VpnService {
     public static volatile boolean running;
 
     private ParcelFileDescriptor tun;
+    private int proxyPort = SessionCatcher.PORT;
     private ProxyCatcher proxy;
     private Thread timeoutThread;
     private volatile boolean stopped;
@@ -57,7 +58,7 @@ public class CaptureVpnService extends VpnService {
         try {
             ProxyCatcher.blockDataTunnel = true;
             proxy = new ProxyCatcher();
-            proxy.start(SessionCatcher.PORT, sid -> {
+            proxyPort = proxy.startAuto(sid -> {
                 capturedSid = sid;
                 saveSid(sid);
                 log("抓到 sessionid: " + mask(sid));
@@ -71,7 +72,7 @@ public class CaptureVpnService extends VpnService {
                     stopAll("已抓到会话");
                 }).start();
             }, msg -> log("[代理] " + msg));
-            log("本地代理已启动 127.0.0.1:" + SessionCatcher.PORT);
+            log("本地代理已启动 127.0.0.1:" + proxyPort);
         } catch (Throwable t) {
             log("代理启动失败：" + t);
             stopAll("代理启动失败");
@@ -107,14 +108,14 @@ public class CaptureVpnService extends VpnService {
             b.addAddress("10.8.0.2", 32);
             b.addRoute("10.8.0.0", 24);
             b.addAllowedApplication("com.slh_mobile_pro");
-            b.setHttpProxy(ProxyInfo.buildDirectProxy("127.0.0.1", SessionCatcher.PORT));
+            b.setHttpProxy(ProxyInfo.buildDirectProxy("127.0.0.1", proxyPort));
             b.setBlocking(false);
             tun = b.establish();
             if (tun == null) {
                 log("VPN establish 返回 null");
                 return false;
             }
-            log("VPN 已建立，仅代理商陆花；HTTP 代理 127.0.0.1:" + SessionCatcher.PORT);
+            log("VPN 已建立，仅代理商陆花；HTTP 代理 127.0.0.1:" + proxyPort);
             return true;
         } catch (Throwable t) {
             log("VPN establish 异常：" + t);

@@ -179,7 +179,7 @@ public class SettingsActivity extends Activity {
         addRow(card, "登录会话", hasSession ? "已保存" : "未抓取",
                 hasSession ? col(R.color.success) : col(R.color.warn), null);
         addRow(card, "商陆花接口", "14.103.84.43:8013", col(R.color.muted), null);
-        addRow(card, "抓包端口", "127.0.0.1:8899", col(R.color.muted), null);
+        addRow(card, "抓包端口", "127.0.0.1:8899（占用自动顺延）", col(R.color.muted), null);
         content.addView(card);
     }
 
