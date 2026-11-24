@@ -150,6 +150,9 @@ public class TableNotes {
         String[] ORDER = {"XS", "S", "M", "L", "XL", "2XL", "3XL", "4XL"};
         String v = s.trim().toUpperCase().replace(" ", "");
         if (v.equals("F") || v.equals("均") || v.equals("均码") || v.equals("FREE")) return "均码";
+        if (v.matches("^\\d{2,3}[-~—]\\d{2,3}$")) {
+            return v; // 数字区间，导入时按商陆花里真实存在的尺码展开
+        }
         java.util.regex.Matcher m = java.util.regex.Pattern
                 .compile("^([0-9A-Z]+)[-~—]([0-9A-Z]+)$").matcher(v);
         if (m.find()) {

@@ -1804,7 +1804,12 @@ public class MainActivity extends Activity {
                 }
             }
 
-            List<String> cids = new ArrayList<>();
+            // 数字尺码区间（105-130）按商陆花里真实存在的尺码展开
+        List<String> expandSizes = new ArrayList<>();
+        for (String s : n.sizes) expandSizes.addAll(SizeExpand.expand(s, sizes.keySet()));
+        n.sizes = expandSizes;
+
+        List<String> cids = new ArrayList<>();
             for (String c : n.colors) cids.add(colors.get(c).optString("sid"));
             List<String> sids = new ArrayList<>();
             for (String s : n.sizes) {

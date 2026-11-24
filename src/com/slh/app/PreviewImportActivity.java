@@ -37,6 +37,7 @@ public class PreviewImportActivity extends Activity {
     private String sid;
     private boolean checked;
     private Map<String, JSONObject> colorMap;
+    private Map<String, JSONObject> sizeMap;
     private List<String> codes;
 
     @Override
@@ -132,9 +133,11 @@ public class PreviewImportActivity extends Activity {
             try {
                 SlhApi api = new SlhApi(sid);
                 Map<String, JSONObject> cm = api.colors();
+                Map<String, JSONObject> sm = api.sizes();
                 List<String> cs = api.codes();
                 runOnUiThread(() -> {
                     colorMap = cm;
+                    sizeMap = sm;
                     codes = cs;
                     checked = true;
                     render();
@@ -212,7 +215,7 @@ public class PreviewImportActivity extends Activity {
 
         TextView rest = new TextView(this);
         rest.setText("颜色 " + (it.colors.isEmpty() ? "（缺）" : it.colors.replace("/", "、"))
-                + " · 尺码 " + it.sizes.replace("/", "、")
+                + " · 尺码 " + showSizes(it.sizes)
                 + (it.price.isEmpty() ? " · 用统一进价" : " · 进价 " + it.price));
         rest.setTextSize(12);
         rest.setTextColor(0xFF777777);
@@ -221,6 +224,34 @@ public class PreviewImportActivity extends Activity {
 
         card.setOnClickListener(v -> edit(idx));
         return card;
+    }
+
+    /** 数字区间按商陆花里真实存在的尺码展开后显示 */
+    private String showSizes(String sizes) {
+        if (sizes == null || sizes.isEmpty()) return "均码";
+        java.util.List<String> out = new ArrayList<>();
+        boolean miss = false;
+        for (String t : sizes.split("/")) {
+            String v = t.trim();
+            if (v.isEmpty()) continue;
+            if (sizeMap != null) {
+                java.util.List<String> ex = SizeExpand.expand(v, sizeMap.keySet());
+                if (ex.size() == 1 && ex.get(0).equals(v) && v.matches("\\d{2,3}[-~—]\\d{2,3}")) {
+                    miss = true;
+                }
+                out.addAll(ex);
+            } else {
+                out.add(v);
+            }
+        }
+        if (out.isEmpty()) return "均码";
+        StringBuilder sb = new StringBuilder();
+        for (String v : out) {
+            if (sb.length() > 0) sb.append('、');
+            sb.append(v);
+        }
+        if (miss) sb.append("（商陆花里没有这几个）");
+        return sb.toString();
     }
 
     private View chip(int st) {
@@ -324,7 +355,8 @@ public class PreviewImportActivity extends Activity {
         ArrayList<String> out = new ArrayList<>();
         for (Item it : items) {
             String note = "【款号】" + it.no + "\n【名称】" + it.name
-                    + "\n【颜色】" + it.colors + "\n【尺码】" + (it.sizes.isEmpty() ? "均码" : it.sizes);
+                    + "\n【颜色】" + it.colors + "\n【尺码】"
+                    + (it.sizes.isEmpty() ? "均码" : it.sizes.replace("/", "/"));
             if (!it.price.isEmpty()) note += "\n【进货价】" + it.price;
             out.add(note);
         }
