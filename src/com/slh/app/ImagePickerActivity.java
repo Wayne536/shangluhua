@@ -86,7 +86,8 @@ public class ImagePickerActivity extends Activity {
         final TextView done = new TextView(this);
         done.setText("完成");
         done.setTextSize(15);
-        done.setTextColor(0xFF07C160);
+        done.setTextColor(0xFF2563EB);
+        done.setTypeface(android.graphics.Typeface.DEFAULT_BOLD);
         done.setPadding(dp(10), dp(6), dp(6), dp(6));
         done.setOnClickListener(v -> finishPick());
         bar.addView(done);
