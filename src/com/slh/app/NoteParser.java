@@ -15,11 +15,13 @@ public class NoteParser {
     public List<String> sizes = new ArrayList<>();
 
     private static final String L = "款号|货号|款式|品名|名称|颜色|色号|尺码|尺寸|码数";
+    /** 没有「名称」时，用这几行的值顶上 */
+    private static final String MAT = "成份|成分|材质|面料";
 
     public static NoteParser parse(String raw) {
         NoteParser n = new NoteParser();
         String text = raw.replace("\r\n", "\n").replace('：', ':');
-        String code = "", name = "", colors = "", sizes = "";
+        String code = "", name = "", colors = "", sizes = "", material = "";
 
         if (text.contains("【")) {
             code = tag(text, "款号");
@@ -37,7 +39,7 @@ public class NoteParser {
         if (code.isEmpty() || colors.isEmpty()) {
             for (String line : text.split("\n")) {
                 String s = line.replace("【", "").replace("】", "").trim();
-                Matcher m = Pattern.compile("^(" + L + ")\\s*:?\\s*(.*)$").matcher(s);
+                Matcher m = Pattern.compile("^(" + L + "|" + MAT + ")\\s*:?\\s*(.*)$").matcher(s);
                 if (!m.find()) continue;
                 String k = m.group(1), v = m.group(2).trim();
                 switch (k) {
@@ -45,6 +47,7 @@ public class NoteParser {
                     case "名称": case "款式": case "品名": if (name.isEmpty()) name = v; break;
                     case "颜色": case "色号": if (colors.isEmpty()) colors = v; break;
                     case "尺码": case "尺寸": case "码数": if (sizes.isEmpty()) sizes = v; break;
+                    default: if (material.isEmpty()) material = v; break;
                 }
             }
         }
@@ -55,6 +58,9 @@ public class NoteParser {
             code = m.group(1);
             name = m.group(2);
         }
+
+        // 群里很多笔记只写成份不写名称，用成份顶上，免得因为缺名称被跳过
+        if (name.isEmpty() && !material.isEmpty()) name = material;
 
         n.no = code.trim();
         n.name = name.trim();

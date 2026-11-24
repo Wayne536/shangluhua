@@ -17,6 +17,10 @@ import android.net.ConnectivityManager;
 import android.net.Network;
 import android.net.NetworkCapabilities;
 import android.net.Uri;
+import android.app.Notification;
+import android.app.NotificationChannel;
+import android.app.NotificationManager;
+import android.app.PendingIntent;
 import android.net.VpnService;
 import android.os.Build;
 import android.os.Bundle;
@@ -59,6 +63,8 @@ public class MainActivity extends Activity {
     private static final int REQ_SHIZUKU = 1001;
     private static final int REQ_VPN = 2002;
     private static final int LV_INFO = 0, LV_OK = 1, LV_WARN = 2, LV_ERR = 3;
+    private static final int NOTIFY_RETURN = 51;
+    private static final String CH_RETURN = "quick_return";
 
     private SharedPreferences sp;
     private final Handler ui = new Handler(Looper.getMainLooper());
@@ -77,6 +83,9 @@ public class MainActivity extends Activity {
 
     private final List<Uri> images = new ArrayList<>();
     private boolean pendingAuto;
+    /** 上次自动填进输入框的剪贴板内容，避免反复覆盖 */
+    private String lastAutoFill = "";
+    private boolean pickingImages;
     private volatile boolean busy;
     private volatile boolean capturing, cancelCapture;
 
@@ -247,6 +256,7 @@ public class MainActivity extends Activity {
         clearTextBtn = textButton("清空", 0);
         clearTextBtn.setOnClickListener(v -> {
             input.setText("");
+            lastAutoFill = "";
             snack("已清空笔记");
         });
         head.addView(clearTextBtn);
@@ -677,9 +687,93 @@ public class MainActivity extends Activity {
     }
 
     @Override
+    protected void onStart() {
+        super.onStart();
+        cancelReturnNotification();
+    }
+
+    @Override
+    protected void onStop() {
+        super.onStop();
+        if (!busy && !capturing && !pickingImages) postReturnNotification();
+    }
+
+    @Override
     protected void onResume() {
         super.onResume();
         refreshStatus();
+        ui.postDelayed(this::autoFillFromClipboard, 200);
+    }
+
+    /** 回到前台时读剪贴板，像笔记就自动填进去（后台读不到，必须前台） */
+    private void autoFillFromClipboard() {
+        if (busy || capturing) return;
+        try {
+            ClipboardManager cm = (ClipboardManager) getSystemService(CLIPBOARD_SERVICE);
+            if (cm == null || !cm.hasPrimaryClip() || cm.getPrimaryClip() == null
+                    || cm.getPrimaryClip().getItemCount() == 0) {
+                return;
+            }
+            CharSequence cs = cm.getPrimaryClip().getItemAt(0).coerceToText(this);
+            String s = cs == null ? "" : cs.toString().trim();
+            if (!looksLikeNote(s) || s.equals(lastAutoFill)) return;
+            String cur = input.getText().toString().trim();
+            if (s.equals(cur)) return;
+            if (!cur.isEmpty() && !cur.equals(lastAutoFill)) {
+                snack("剪贴板里有新笔记，点「粘贴」可替换当前内容");
+                return;
+            }
+            input.setText(s);
+            input.setSelection(s.length());
+            lastAutoFill = s;
+            log("已从剪贴板自动填入 " + noteCount(s) + " 条笔记");
+            snack("已自动填入剪贴板里的笔记");
+        } catch (Throwable ignored) {
+            // 读不到就算了（比如系统没给权限）
+        }
+    }
+
+    private static boolean looksLikeNote(String s) {
+        if (s == null || s.length() < 8) return false;
+        return s.contains("款号") || s.contains("货号") || s.contains("【") || s.contains("颜色");
+    }
+
+    private void postReturnNotification() {
+        try {
+            NotificationManager nm = (NotificationManager) getSystemService(NOTIFICATION_SERVICE);
+            if (nm == null) return;
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
+                NotificationChannel ch = new NotificationChannel(CH_RETURN, "回到入库助手",
+                        NotificationManager.IMPORTANCE_LOW);
+                ch.setShowBadge(false);
+                nm.createNotificationChannel(ch);
+            }
+            Intent open = new Intent(this, MainActivity.class);
+            open.setFlags(Intent.FLAG_ACTIVITY_NEW_TASK | Intent.FLAG_ACTIVITY_SINGLE_TOP);
+            int flags = PendingIntent.FLAG_UPDATE_CURRENT;
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.M) {
+                flags |= PendingIntent.FLAG_IMMUTABLE;
+            }
+            PendingIntent pi = PendingIntent.getActivity(this, 0, open, flags);
+            Notification.Builder b = Build.VERSION.SDK_INT >= Build.VERSION_CODES.O
+                    ? new Notification.Builder(this, CH_RETURN)
+                    : new Notification.Builder(this);
+            b.setSmallIcon(R.mipmap.ic_launcher)
+                    .setContentTitle("入库助手")
+                    .setContentText("复制完点这里回来，笔记会自动填好")
+                    .setContentIntent(pi)
+                    .setAutoCancel(true);
+            nm.notify(NOTIFY_RETURN, b.build());
+        } catch (Throwable ignored) {
+        }
+    }
+
+    private void cancelReturnNotification() {
+        try {
+            NotificationManager nm = (NotificationManager) getSystemService(NOTIFICATION_SERVICE);
+            if (nm != null) nm.cancel(NOTIFY_RETURN);
+        } catch (Throwable ignored) {
+        }
     }
 
     @Override
@@ -816,6 +910,7 @@ public class MainActivity extends Activity {
     }
 
     private void pickImages() {
+        pickingImages = true;
         Intent i = new Intent(Intent.ACTION_GET_CONTENT);
         i.setType("image/*");
         i.putExtra(Intent.EXTRA_ALLOW_MULTIPLE, true);
@@ -834,7 +929,9 @@ public class MainActivity extends Activity {
             }
             return;
         }
-        if (req != REQ_IMAGES || res != RESULT_OK || data == null) return;
+        if (req != REQ_IMAGES) return;
+        pickingImages = false;
+        if (res != RESULT_OK || data == null) return;
         images.clear();
         if (data.getClipData() != null) {
             int n = data.getClipData().getItemCount();
