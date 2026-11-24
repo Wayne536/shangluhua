@@ -178,6 +178,7 @@ public class MainActivity extends Activity {
 
         restoreDraft();
         refreshStatus();
+        new Thread(this::healStaleProxy).start();
 
         input.addTextChangedListener(new TextWatcher() {
             public void beforeTextChanged(CharSequence s, int a, int b, int c) {}
@@ -422,6 +423,9 @@ public class MainActivity extends Activity {
         head.setGravity(Gravity.CENTER_VERTICAL);
         head.addView(sectionLabel("运行日志"));
         head.addView(spacer(), new LinearLayout.LayoutParams(0, 1, 1f));
+        TextView share = textButton("分享日志", 0);
+        share.setOnClickListener(v -> shareLog());
+        head.addView(share);
         TextView clear = textButton("清空日志", 0);
         clear.setOnClickListener(v -> clearLog());
         head.addView(clear);
@@ -606,6 +610,51 @@ public class MainActivity extends Activity {
         });
     }
 
+    /** 上次抓会话的进程崩了会留下系统代理，整机断网；这里检测到就自己清掉 */
+    private void healStaleProxy() {
+        try {
+            String p = android.provider.Settings.Global.getString(getContentResolver(),
+                    android.provider.Settings.Global.HTTP_PROXY);
+            if (p == null) return;
+            String v = p.trim();
+            if (v.isEmpty() || v.equals(":0") || v.equals("null")) return;
+            if (!v.contains("127.0.0.1") && !v.contains("localhost")) return;
+            int port = 8899;
+            int idx = v.lastIndexOf(':');
+            if (idx > 0) {
+                try {
+                    port = Integer.parseInt(v.substring(idx + 1).trim());
+                } catch (Throwable ignored) {
+                }
+            }
+            if (isListening(port)) return; // 真有代理在跑，不动它
+            if (!AutoCapture.available()) {
+                log("⚠ 系统代理残留（" + v + "），但 Shizuku 不可用，清不掉");
+                return;
+            }
+            AutoCapture ac = new AutoCapture(this::log);
+            ac.sh("settings put global http_proxy :0");
+            log("⚠ 发现残留的系统代理 " + v + "，已自动清掉");
+            snack("上次抓取没清干净，代理已恢复");
+        } catch (Throwable ignored) {
+        }
+    }
+
+    private static boolean isListening(int port) {
+        java.net.Socket s = new java.net.Socket();
+        try {
+            s.connect(new java.net.InetSocketAddress("127.0.0.1", port), 300);
+            return true;
+        } catch (Throwable t) {
+            return false;
+        } finally {
+            try {
+                s.close();
+            } catch (Throwable ignored) {
+            }
+        }
+    }
+
     private void setCaptureHint(final String s) {
         ui.post(() -> {
             if (captureHint != null && s != null) captureHint.setText(s);
@@ -714,6 +763,7 @@ public class MainActivity extends Activity {
     protected void onResume() {
         super.onResume();
         refreshStatus();
+        new Thread(this::healStaleProxy).start();
         ui.postDelayed(this::autoFillFromClipboard, 200);
     }
 
@@ -1193,6 +1243,39 @@ public class MainActivity extends Activity {
         rebuildThumbs();
     }
 
+    private void shareLog() {
+        try {
+            StringBuilder sb = new StringBuilder();
+            String ver = "?";
+            try {
+                ver = getPackageManager().getPackageInfo(getPackageName(), 0).versionName;
+            } catch (Throwable ignored) {
+            }
+            sb.append("入库助手 v").append(ver).append(" 运行日志\n\n");
+            File f = new File(getExternalFilesDir(null), "cap.log");
+            if (f.exists()) {
+                java.io.BufferedReader r = new java.io.BufferedReader(new java.io.FileReader(f));
+                java.util.ArrayDeque<String> q = new java.util.ArrayDeque<>();
+                String line;
+                while ((line = r.readLine()) != null) {
+                    q.addLast(line);
+                    if (q.size() > 300) q.removeFirst();
+                }
+                r.close();
+                for (String l : q) sb.append(l).append('\n');
+            } else {
+                sb.append("（还没有日志）");
+            }
+            Intent i = new Intent(Intent.ACTION_SEND);
+            i.setType("text/plain");
+            i.putExtra(Intent.EXTRA_SUBJECT, "入库助手运行日志");
+            i.putExtra(Intent.EXTRA_TEXT, sb.toString());
+            startActivity(Intent.createChooser(i, "分享日志"));
+        } catch (Throwable t) {
+            snack("导出日志失败：" + t.getMessage());
+        }
+    }
+
     private void refreshEditUi() {
         if (editDoneBtn != null) {
             editDoneBtn.setVisibility(editMode ? View.VISIBLE : View.GONE);
@@ -1557,6 +1640,13 @@ public class MainActivity extends Activity {
                     showResult(ok, skip, fail);
                     snack("完成：成功 " + ok + " · 跳过 " + skip + " · 失败 " + fail);
                     setBusy(false, null);
+                    if (fail == 0 && ok > 0) {
+                        input.setText("");
+                        lastAutoFill = "";
+                        images.clear();
+                        rebuildThumbs();
+                        log("已自动清空笔记和图片，可以贴下一条");
+                    }
                 });
             }
         }).start();
