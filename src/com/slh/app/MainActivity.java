@@ -1125,7 +1125,7 @@ public class MainActivity extends Activity {
         AutoCapture ac = new AutoCapture(this::log);
         String sidPath = "/data/local/tmp/slh_sid.txt";
         String smLog = "/data/local/tmp/slh_auto.log";
-        log("自动抓取：商陆花会自己打开、进「货品」页并下拉刷新");
+        log("自动抓取：商陆花会自己打开、点进「货品」页");
         statusBusy("自动抓会话…");
 
         String cmd = "rm -f " + sidPath + " " + smLog + "; "

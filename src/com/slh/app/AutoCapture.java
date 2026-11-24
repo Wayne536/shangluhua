@@ -118,7 +118,7 @@ public class AutoCapture {
             log.log("商陆花没起来，可能被系统拦住了");
             return false;
         }
-        sleep(1700); // 等首页渲染
+        sleep(3000); // 等首页渲染（实测 3.5 秒后点才稳）
         return !cancelled;
     }
 

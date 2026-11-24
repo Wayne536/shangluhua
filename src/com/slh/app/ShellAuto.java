@@ -36,7 +36,7 @@ public class ShellAuto {
                 fail(ac, proxy, "商陆花没打开");
                 return;
             }
-            ac.openGoods(false);
+            // 先切到明文：点开「货品」时页面加载本身就走明文接口，可能不用再下拉
             proxy.killDataTunnels();
             ProxyCatcher.blockDataTunnel = true;
             sleep(300);
@@ -44,7 +44,19 @@ public class ShellAuto {
                 ProxyCatcher.testFailUpstream = true;
                 say("自测模式：从现在起上游全部连不上");
             }
-            say("开始下拉刷新…");
+
+            int[] cachedPos = readPos();
+            if (cachedPos != null) {
+                say("直接点上次记下的「货品」位置");
+                ac.tapGoodsAt(cachedPos);
+            } else {
+                ac.openGoods(false);
+            }
+            if (waitFound(5000)) {
+                sleep(4000);
+                return;
+            }
+            say("页面加载没带出来，补下拉刷新…");
             if (pullUntilFound(ac, 4)) {
                 sleep(4000); // 等收尾线程把界面切回去（主线程一返回进程就退出）
                 return;
@@ -85,6 +97,15 @@ public class ShellAuto {
         }, "slh-back");
         // 不能设成守护线程：主线程一返回，进程就退出了，App 还没被切回来
         t.start();
+    }
+
+    private static boolean waitFound(long ms) {
+        long end = System.currentTimeMillis() + ms;
+        while (System.currentTimeMillis() < end) {
+            if (done.get()) return true;
+            sleep(250);
+        }
+        return done.get();
     }
 
     /** 拉一次 → 每 250ms 看一眼，抓到就停 */
