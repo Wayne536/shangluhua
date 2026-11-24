@@ -37,6 +37,10 @@ public class ProxyCatcher {
     private static final Pattern SID = Pattern.compile("sessionid=([^&\\s\"';]+)");
     private static final byte[] HEAD_END = "\r\n\r\n".getBytes(StandardCharsets.ISO_8859_1);
     private static final int MAX_HEAD = 64 * 1024;
+    /** 请求体先读这么多再转发：上游连不上时也能从请求里捞到 sessionid */
+    private static final int MAX_BODY_SCAN = 256 * 1024;
+    /** 自测用：模拟所有上游都连不上 */
+    public static volatile boolean testFailUpstream = false;
 
     private ServerSocket server;
     private volatile boolean running;
@@ -205,11 +209,18 @@ public class ProxyCatcher {
             host = stripBrackets(host);
 
             log("→ " + method + " http://" + host + path);
+            // 先把请求体读下来扫一遍：这样即使上游连不上（页面报网络错误），
+            // 只要请求里带了 sessionid 也照样抓得到
+            int clen = parseInt(headers.get("content-length"), 0);
+            byte[] body = readBody(client, extra, clen);
             scan(headStr);
-            if (sid != null) {
-                // 抓到后也继续转发，调用方会自己关闭代理
-            }
+            scan(new String(body, StandardCharsets.ISO_8859_1));
 
+            if (testFailUpstream && path.contains("api.do")) {
+                log("自测：故意让 " + path + " 连接失败");
+                sendError(client, "502 Bad Gateway");
+                return;
+            }
             upstream = connect(host, port);
             if (upstream == null) {
                 sendError(client, "502 Bad Gateway");
@@ -228,7 +239,7 @@ public class ProxyCatcher {
 
             OutputStream uo = upstream.getOutputStream();
             uo.write(req.toString().getBytes(StandardCharsets.ISO_8859_1));
-            if (extra.length > 0) uo.write(extra);
+            if (body.length > 0) uo.write(body);
             uo.flush();
 
             pumpBoth(client, upstream, true);
@@ -294,6 +305,23 @@ public class ProxyCatcher {
     }
 
     // ---------------- 工具 ----------------
+
+    private byte[] readBody(Socket client, byte[] extra, int clen) {
+        ByteArrayOutputStream b = new ByteArrayOutputStream();
+        if (extra.length > 0) b.write(extra, 0, extra.length);
+        if (clen <= 0 || clen > MAX_BODY_SCAN) return b.toByteArray();
+        try {
+            InputStream in = client.getInputStream();
+            byte[] buf = new byte[8192];
+            while (b.size() < clen) {
+                int n = in.read(buf, 0, Math.min(buf.length, clen - b.size()));
+                if (n <= 0) break;
+                b.write(buf, 0, n);
+            }
+        } catch (Throwable ignored) {
+        }
+        return b.toByteArray();
+    }
 
     private Socket connect(String host, int port) {
         Socket s = new Socket();

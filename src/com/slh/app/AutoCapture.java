@@ -41,6 +41,8 @@ public class AutoCapture {
     private final int w, h;
     /** 用户点了取消：后续步骤不再执行 */
     public volatile boolean cancelled;
+    /** 上次确认到的「货品」入口坐标，下次可以直接点，省一次读界面 */
+    private int[] goodsPos;
 
     public AutoCapture(Logger log) {
         this(log, false);
@@ -98,32 +100,37 @@ public class AutoCapture {
             log.log("Shizuku 连续没响应，先不自动操作了");
             return false;
         }
-        log.log("先关掉商陆花，保证从首页开始…");
-        sh("timeout 12 am force-stop " + SLH_PKG);
-        sleep(600);
-        if (cancelled) return false;
         String act = launcher();
-        log.log("打开商陆花（" + act + "）");
+        log.log("冷启动商陆花");
+        sh("timeout 12 am force-stop " + SLH_PKG);
+        sleep(350);
         sh("timeout 15 am start -n " + act);
         boolean up = false;
-        for (int i = 0; i < 25; i++) {
+        for (int i = 0; i < 20; i++) {
             if (focus().contains(SLH_PKG)) {
                 up = true;
                 break;
             }
             if (cancelled) return false;
-            sleep(400);
+            sleep(250);
         }
         if (!up) {
             log.log("商陆花没起来，可能被系统拦住了");
             return false;
         }
-        sleep(2600); // 等首页渲染完
+        sleep(1700); // 等首页渲染
         return !cancelled;
     }
 
-    /** 进「货品」列表页；返回是否确认到了货品页 */
+    /** 进「货品」列表页（读完界面再点） */
     public boolean openGoods() {
+        return openGoods(true);
+    }
+
+    /**
+     * @param verify false 时点完就返回，省掉一次读界面；没抓到时由调用方再来一次
+     */
+    public boolean openGoods(boolean verify) {
         if (!healthy()) {
             log.log("Shizuku 连续没响应，跳过自动点按");
             return false;
@@ -145,9 +152,14 @@ public class AutoCapture {
 
         Node goods = find(nodes, "货品");
         if (goods != null) {
+            goodsPos = new int[]{goods.cx(), goods.cy()};
             log.log("点首页「货品」→ " + goods.cx() + "," + goods.cy());
             tap(goods);
-            sleep(1900);
+            sleep(1200);
+            if (!verify) {
+                log.log("点完「货品」，先当它进去了");
+                return true;
+            }
             nodes = dump();
             if (looksLikeGoods(nodes)) {
                 log.log("已进入「货品」页");
@@ -160,7 +172,7 @@ public class AutoCapture {
         if (stock != null && !cancelled) {
             log.log("点底部「库存」");
             tap(stock);
-            sleep(1700);
+            sleep(1200);
             List<Node> n2 = dump();
             if (looksLikeGoods(n2)) return true;
             Node g2 = find(n2, "货品");
@@ -168,7 +180,7 @@ public class AutoCapture {
             if (g2 != null) {
                 log.log("点「货品」入口");
                 tap(g2);
-                sleep(1900);
+                sleep(1200);
                 if (looksLikeGoods(dump())) return true;
             }
         }
@@ -176,19 +188,25 @@ public class AutoCapture {
         if (cancelled) return false;
         log.log("按坐标兜底点「货品」卡片");
         tap((int) (w * 0.17), (int) (h * 0.78));
-        sleep(1900);
+        sleep(1200);
         return looksLikeGoods(dump());
     }
 
-    /** 在货品页下拉刷新：从列表顶部慢慢拉到底，拉短了不会触发刷新 */
-    public void pullRefresh() {
-        int x = w / 2;
-        int y1 = (int) (h * 0.20);
-        int y2 = (int) (h * 0.98);
-        for (int i = 0; i < 3 && !cancelled && healthy(); i++) {
-            swipe(x, y1, x, y2, 1500);
-            sleep(2800);
-        }
+    public int[] goodsPos() {
+        return goodsPos;
+    }
+
+    /** 用上次记下的坐标直接点「货品」，不再读界面 */
+    public void tapGoodsAt(int[] pos) {
+        if (pos == null || pos.length < 2) return;
+        log.log("点「货品」→ " + pos[0] + "," + pos[1]);
+        tap(pos[0], pos[1]);
+        sleep(1200);
+    }
+
+    /** 下拉刷新一次：从列表顶部慢慢拉到底，拉短了不会触发刷新 */
+    public void pullOnce() {
+        swipe(w / 2, (int) (h * 0.20), w / 2, (int) (h * 0.98), 1200);
     }
 
     /** 抓完把界面还给用户 */
@@ -203,7 +221,7 @@ public class AutoCapture {
         for (int attempt = 0; attempt < 2; attempt++) {
             if (cancelled) break;
             sh("rm -f " + DUMP_PATH);
-            sh("timeout 12 uiautomator dump " + DUMP_PATH);
+            sh("timeout 12 uiautomator dump --compressed " + DUMP_PATH);
             out = parse(sh("cat " + DUMP_PATH));
             if (!out.isEmpty()) return out;
             sleep(800);
@@ -347,7 +365,7 @@ public class AutoCapture {
             fails = 0;
         }
         long ms = System.currentTimeMillis() - t0;
-        if (ms > 2500) {
+        if (DEBUG && ms > 2500) {
             log.log("[sh " + ms + "ms] " + brief(cmd)
                     + (res.startsWith("ERR:") ? " → " + brief(res) : ""));
         }

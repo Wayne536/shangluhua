@@ -1143,7 +1143,7 @@ public class MainActivity extends Activity {
         while (System.currentTimeMillis() < deadline && sid == null
                 && !gaveUp && !cancelCapture) {
             try {
-                Thread.sleep(1500);
+                Thread.sleep(300);
             } catch (InterruptedException ignored) {
             }
             String out = ac.sh("cat " + sidPath + " 2>/dev/null").trim();
