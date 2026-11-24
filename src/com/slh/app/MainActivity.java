@@ -964,51 +964,34 @@ public class MainActivity extends Activity {
                 imageCount.setText("未选");
                 return;
             }
+            thumbRow.setPadding(0, 0, 0, dp(1));
+            thumbScroll.setClipChildren(false);
+            thumbScroll.setClipToPadding(false);
+            thumbRow.setClipChildren(false);
             thumbScroll.setVisibility(View.VISIBLE);
             clearImgBtn.setVisibility(View.VISIBLE);
             imageCount.setText("已选 " + images.size() + " 张");
 
             for (int i = 0; i < images.size(); i++) {
                 final Uri u = images.get(i);
-                FrameLayout box = new FrameLayout(this);
-                box.setClipChildren(false);
-                box.setClipToPadding(false);
+                ThumbBox box = new ThumbBox(this);
                 box.setClickable(true);
                 box.setContentDescription("第 " + (i + 1) + " 张，点一下看大图，长按拖动排序");
+                final Uri target = u;
+                box.onDelete = () -> {
+                    images.remove(target);
+                    rebuildThumbs();
+                    snack("已移除一张");
+                };
 
                 ImageView iv = new ImageView(this);
                 iv.setScaleType(ImageView.ScaleType.CENTER_CROP);
                 iv.setBackgroundResource(R.drawable.bg_thumb);
                 iv.setClipToOutline(true);
-                box.addView(iv, new FrameLayout.LayoutParams(-1, -1));
-
-                // iOS 卸载标：红色圆 + 白色横杠，压在左上角
-                View del = new View(this) {
-                    @Override
-                    protected void onDraw(android.graphics.Canvas c) {
-                        android.graphics.Paint p = new android.graphics.Paint(
-                                android.graphics.Paint.ANTI_ALIAS_FLAG);
-                        float r = getWidth() / 2f;
-                        p.setColor(0xFFFF3B30);
-                        c.drawCircle(r, r, r - dp(1), p);
-                        p.setColor(Color.WHITE);
-                        float hw = getWidth() * 0.24f;
-                        float hh = dp(1.7f);
-                        c.drawRoundRect(r - hw, r - hh, r + hw, r + hh, hh, hh, p);
-                    }
-                };
-                del.setContentDescription("删除这张");
-                del.setClickable(true);
-                FrameLayout.LayoutParams dlp = new FrameLayout.LayoutParams(dp(20), dp(20),
-                        Gravity.TOP | Gravity.START);
-                dlp.leftMargin = dp(1);
-                dlp.topMargin = dp(1);
-                box.addView(del, dlp);
-                del.setOnClickListener(v -> {
-                    images.remove(u);
-                    rebuildThumbs();
-                    snack("已移除一张");
-                });
+                FrameLayout.LayoutParams ilp = new FrameLayout.LayoutParams(dp(56), dp(56));
+                ilp.leftMargin = dp(10);
+                ilp.topMargin = dp(10);
+                box.addView(iv, ilp);
 
                 box.setOnClickListener(v -> openImagePreview(u));
                 box.setOnLongClickListener(v -> {
@@ -1017,8 +1000,8 @@ public class MainActivity extends Activity {
                 });
                 box.setOnTouchListener(thumbTouch);
 
-                LinearLayout.LayoutParams p = new LinearLayout.LayoutParams(dp(56), dp(56));
-                p.rightMargin = dp(8);
+                LinearLayout.LayoutParams p = new LinearLayout.LayoutParams(dp(66), dp(66));
+                p.rightMargin = dp(4);
                 thumbRow.addView(box, p);
                 loadThumb(u, iv);
             }
@@ -1028,11 +1011,72 @@ public class MainActivity extends Activity {
                 add.setGravity(Gravity.CENTER);
                 add.setBackgroundResource(R.drawable.bg_thumb);
                 add.setOnClickListener(v -> pickImages());
-                LinearLayout.LayoutParams p = new LinearLayout.LayoutParams(dp(56), dp(56));
-                p.rightMargin = dp(8);
-                thumbRow.addView(add, p);
+                FrameLayout addBox = new FrameLayout(this);
+                FrameLayout.LayoutParams alp = new FrameLayout.LayoutParams(dp(56), dp(56));
+                alp.leftMargin = dp(10);
+                alp.topMargin = dp(10);
+                addBox.addView(add, alp);
+                LinearLayout.LayoutParams p = new LinearLayout.LayoutParams(dp(66), dp(66));
+                p.rightMargin = dp(4);
+                thumbRow.addView(addBox, p);
             }
         });
+    }
+
+    /** 缩略图容器：自己把 iOS 样式的删除标画在最上层，左上角压一半出去 */
+    private class ThumbBox extends FrameLayout {
+        Runnable onDelete;
+        private boolean badgeDown;
+
+        ThumbBox(android.content.Context c) {
+            super(c);
+            setClipChildren(false);
+        }
+
+        @Override
+        protected void dispatchDraw(android.graphics.Canvas canvas) {
+            super.dispatchDraw(canvas);
+            if (onDelete == null) return;
+            android.graphics.Paint p = new android.graphics.Paint(
+                    android.graphics.Paint.ANTI_ALIAS_FLAG);
+            float r = dp(11);
+            float cx = dp(10), cy = dp(10);
+            p.setColor(0xFFFF3B30);
+            canvas.drawCircle(cx, cy, r, p);
+            p.setColor(Color.WHITE);
+            canvas.drawRoundRect(cx - r * 0.48f, cy - dp(1.7f),
+                    cx + r * 0.48f, cy + dp(1.7f), dp(2), dp(2), p);
+        }
+
+        @Override
+        public boolean onTouchEvent(android.view.MotionEvent e) {
+            switch (e.getActionMasked()) {
+                case android.view.MotionEvent.ACTION_DOWN:
+                    badgeDown = onDelete != null && inBadge(e.getX(), e.getY());
+                    if (badgeDown) return true;
+                    return super.onTouchEvent(e);
+                case android.view.MotionEvent.ACTION_UP:
+                    if (badgeDown) {
+                        badgeDown = false;
+                        boolean hit = inBadge(e.getX(), e.getY());
+                        if (hit && onDelete != null) {
+                            onDelete.run();
+                            return true;
+                        }
+                        return true;
+                    }
+                    break;
+                default:
+                    break;
+            }
+            return super.onTouchEvent(e);
+        }
+
+        private boolean inBadge(float x, float y) {
+            float dx = x - dp(10), dy = y - dp(10);
+            float r = dp(16);
+            return dx * dx + dy * dy <= r * r;
+        }
     }
 
     // ===== 缩略图：点开看大图 / 长按拖动排序 =====
