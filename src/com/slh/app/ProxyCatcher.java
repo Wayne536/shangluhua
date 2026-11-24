@@ -44,6 +44,21 @@ public class ProxyCatcher {
     private Found cb;
     private Log logger;
     private final List<Socket> sockets = Collections.synchronizedList(new ArrayList<>());
+    /** 商陆花的数据隧道（加密），开抓时要掐断，逼它回落到明文接口 */
+    private final List<Socket> tunnels = Collections.synchronizedList(new ArrayList<>());
+
+    public static boolean isDataTunnel(String host) {
+        return host.contains("dsa13a") || host.contains("gdoc01c");
+    }
+
+    /** 主动掐断已经连着的数据隧道 */
+    public void killDataTunnels() {
+        synchronized (tunnels) {
+            for (Socket s : tunnels) closeQuietly(s);
+            tunnels.clear();
+        }
+        log("已断开商陆花数据隧道");
+    }
 
     public void start(int port, Found found, Log log) throws Exception {
         this.cb = found;
@@ -127,7 +142,7 @@ public class ProxyCatcher {
                     port = parseInt(target.substring(lp + 1), 443);
                 }
                 host = stripBrackets(host);
-                if (blockDataTunnel && (host.contains("dsa13a") || host.contains("gdoc01c"))) {
+                if (blockDataTunnel && isDataTunnel(host)) {
                     log("拦截数据隧道 " + host + ":" + port + "，逼它走明文接口");
                     sendError(client, "502 Bad Gateway");
                     return;
@@ -139,6 +154,7 @@ public class ProxyCatcher {
                     return;
                 }
                 log("↑ 上游连上 " + host + ":" + port);
+                if (isDataTunnel(host)) tunnels.add(upstream);
                 OutputStream co = client.getOutputStream();
                 co.write("HTTP/1.1 200 Connection Established\r\n\r\n"
                         .getBytes(StandardCharsets.ISO_8859_1));
@@ -223,6 +239,7 @@ public class ProxyCatcher {
             closeQuietly(upstream);
             untrack(client);
             untrack(upstream);
+            if (upstream != null) tunnels.remove(upstream);
         }
     }
 

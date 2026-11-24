@@ -341,13 +341,13 @@ public class SettingsActivity extends Activity {
         LinearLayout card = card();
         card.addView(section("权限管理"));
 
-        shizukuValue = addRow(card, "Shizuku（可选）", "", col(R.color.muted), this::onShizuku);
+        shizukuValue = addRow(card, "Shizuku（自动抓取）", "", col(R.color.muted), this::onShizuku);
         overlayValue = addRow(card, "悬浮窗", "", col(R.color.muted), this::onOverlay);
         notifyValue = addRow(card, "通知权限", "", col(R.color.muted), this::onNotify);
         batteryValue = addRow(card, "电池优化白名单", "", col(R.color.muted), this::onBattery);
         addRow(card, "存储", "应用私有目录", col(R.color.success), null);
 
-        TextView note = text("抓会话现在用只代理商陆花的本地 VPN，不需要 Shizuku；电池白名单可减少后台被杀。", 11, col(R.color.hint));
+        TextView note = text("授权 Shizuku 后抓会话全自动：自动打开商陆花 → 货品 → 下拉刷新；没授权就走手动两步流程。电池白名单可减少后台被杀。", 11, col(R.color.hint));
         note.setLineSpacing(dp(2), 1f);
         LinearLayout.LayoutParams nlp = new LinearLayout.LayoutParams(-1, -2);
         nlp.topMargin = dp(8);
