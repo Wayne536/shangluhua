@@ -798,6 +798,7 @@ public class MainActivity extends Activity {
 
     private static boolean looksLikeNote(String s) {
         if (s == null || s.length() < 8) return false;
+        if (TableNotes.isTable(s)) return true;
         return s.contains("款号") || s.contains("货号") || s.contains("【") || s.contains("颜色");
     }
 
@@ -1611,6 +1612,10 @@ public class MainActivity extends Activity {
 
     private List<String> splitNotes(String text) {
         List<String> out = new ArrayList<>();
+        if (TableNotes.isTable(text)) {
+            List<String> t = TableNotes.toNotes(text);
+            if (!t.isEmpty()) return t;
+        }
         String[] parts = text.split("(?m)(?=(?:【\\s*款号\\s*】|^\\s*款号\\s*:?))");
         for (String p : parts) {
             if (!p.trim().isEmpty()) out.add(p.trim());
@@ -1807,7 +1812,8 @@ public class MainActivity extends Activity {
                 else if (sizes.containsKey("均码")) sids.add(sizes.get("均码").optString("sid"));
             }
 
-            JSONObject r = api.createStyle(n.no, n.name, cids, sids, fileid, price);
+            String rowPrice = n.price.isEmpty() ? price : n.price;
+            JSONObject r = api.createStyle(n.no, n.name, cids, sids, fileid, rowPrice);
             if (r.has("val")) {
                 log("✔ " + n.no + " → id " + r.optString("val") + "（" + cids.size() + " 色）");
                 codes.add(n.no);

@@ -27,7 +27,7 @@ public class PreviewImportActivity extends Activity {
     private static final int ST_NEW = 0, ST_EXISTS = 1, ST_MISSING = 2, ST_UNKNOWN = 3;
 
     private static class Item {
-        String no = "", name = "", colors = "", sizes = "";
+        String no = "", name = "", colors = "", sizes = "", price = "";
         int status = ST_UNKNOWN;
     }
 
@@ -106,6 +106,7 @@ public class PreviewImportActivity extends Activity {
                 it.name = p.name;
                 it.colors = join(p.colors);
                 it.sizes = join(p.sizes);
+                it.price = p.price;
                 items.add(it);
             }
         }
@@ -211,7 +212,8 @@ public class PreviewImportActivity extends Activity {
 
         TextView rest = new TextView(this);
         rest.setText("颜色 " + (it.colors.isEmpty() ? "（缺）" : it.colors)
-                + " · 尺码 " + it.sizes);
+                + " · 尺码 " + it.sizes
+                + (it.price.isEmpty() ? " · 用统一进价" : " · 进价 " + it.price));
         rest.setTextSize(12);
         rest.setTextColor(0xFF777777);
         rest.setPadding(0, dp(2), 0, 0);
@@ -266,10 +268,12 @@ public class PreviewImportActivity extends Activity {
         final EditText e2 = field("名称", it.name);
         final EditText e3 = field("颜色（用 / 分隔）", it.colors);
         final EditText e4 = field("尺码（用 / 分隔）", it.sizes);
+        final EditText e5 = field("进货价（留空=用统一价）", it.price);
         box.addView(e1);
         box.addView(e2);
         box.addView(e3);
         box.addView(e4);
+        box.addView(e5);
         new AlertDialog.Builder(this)
                 .setTitle("修改第 " + (idx + 1) + " 条")
                 .setView(box)
@@ -278,6 +282,7 @@ public class PreviewImportActivity extends Activity {
                     it.name = e2.getText().toString().trim();
                     it.colors = e3.getText().toString().trim();
                     it.sizes = e4.getText().toString().trim();
+                    it.price = e5.getText().toString().trim();
                     render();
                 })
                 .setNegativeButton("取消", null)
@@ -318,8 +323,10 @@ public class PreviewImportActivity extends Activity {
     private void startImport() {
         ArrayList<String> out = new ArrayList<>();
         for (Item it : items) {
-            out.add("【款号】" + it.no + "\n【名称】" + it.name
-                    + "\n【颜色】" + it.colors + "\n【尺码】" + (it.sizes.isEmpty() ? "均码" : it.sizes));
+            String note = "【款号】" + it.no + "\n【名称】" + it.name
+                    + "\n【颜色】" + it.colors + "\n【尺码】" + (it.sizes.isEmpty() ? "均码" : it.sizes);
+            if (!it.price.isEmpty()) note += "\n【进货价】" + it.price;
+            out.add(note);
         }
         android.content.Intent data = new android.content.Intent();
         data.putStringArrayListExtra("notes", out);
