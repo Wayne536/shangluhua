@@ -911,10 +911,11 @@ public class MainActivity extends Activity {
 
     private void pickImages() {
         pickingImages = true;
-        Intent i = new Intent(Intent.ACTION_GET_CONTENT);
-        i.setType("image/*");
-        i.putExtra(Intent.EXTRA_ALLOW_MULTIPLE, true);
-        startActivityForResult(Intent.createChooser(i, "选择图片"), REQ_IMAGES);
+        Intent i = new Intent(this, ImagePickerActivity.class);
+        ArrayList<String> cur = new ArrayList<>();
+        for (Uri u : images) cur.add(u.toString());
+        i.putStringArrayListExtra("selected", cur);
+        startActivityForResult(i, REQ_IMAGES);
     }
 
     @Override
@@ -932,6 +933,17 @@ public class MainActivity extends Activity {
         if (req != REQ_IMAGES) return;
         pickingImages = false;
         if (res != RESULT_OK || data == null) return;
+        ArrayList<String> picked = data.getStringArrayListExtra("uris");
+        if (picked != null) {
+            images.clear();
+            for (String s : picked) {
+                if (images.size() >= 9) break;
+                images.add(Uri.parse(s));
+            }
+            rebuildThumbs();
+            log("已选 " + images.size() + " 张图");
+            return;
+        }
         images.clear();
         if (data.getClipData() != null) {
             int n = data.getClipData().getItemCount();

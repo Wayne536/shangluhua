@@ -12,6 +12,7 @@
     <color name="border">#E5E7EB</color>
     <color name="input_bg">#F7F8FA</color>
     <color name="success">#15803D</color>
+    <color name="num_badge">#07C160</color>
     <color name="success_soft">#E9F7EF</color>
     <color name="warn">#B45309</color>
     <color name="warn_soft">#FDF3E3</color>
