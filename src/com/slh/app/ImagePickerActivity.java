@@ -49,14 +49,20 @@ public class ImagePickerActivity extends Activity {
     @Override
     protected void onCreate(Bundle b) {
         super.onCreate(b);
-        getWindow().setStatusBarColor(0xFF111111);
-        getWindow().setNavigationBarColor(0xFF111111);
+        getWindow().setStatusBarColor(0xFFFFFFFF);
+        getWindow().setNavigationBarColor(0xFFFFFFFF);
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.M) {
+            getWindow().getDecorView().setSystemUiVisibility(
+                    View.SYSTEM_UI_FLAG_LIGHT_STATUS_BAR
+                            | View.SYSTEM_UI_FLAG_LIGHT_NAVIGATION_BAR);
+        }
         DisplayMetrics dm = getResources().getDisplayMetrics();
-        cell = (dm.widthPixels - dp(5) * 5) / 4;
+        // 4 列正好铺满：左右各 2dp，列间 2dp
+        cell = (dm.widthPixels - dp(2) * 2 - dp(2) * 3) / 4;
 
         LinearLayout root = new LinearLayout(this);
         root.setOrientation(LinearLayout.VERTICAL);
-        root.setBackgroundColor(0xFF111111);
+        root.setBackgroundColor(0xFFFFFFFF);
 
         LinearLayout bar = new LinearLayout(this);
         bar.setGravity(Gravity.CENTER_VERTICAL);
@@ -64,7 +70,7 @@ public class ImagePickerActivity extends Activity {
         TextView cancel = new TextView(this);
         cancel.setText("取消");
         cancel.setTextSize(15);
-        cancel.setTextColor(Color.WHITE);
+        cancel.setTextColor(0xFF555555);
         cancel.setPadding(dp(6), dp(6), dp(6), dp(6));
         cancel.setOnClickListener(v -> finish());
         bar.addView(cancel);
@@ -73,7 +79,7 @@ public class ImagePickerActivity extends Activity {
         title.setText("选择图片");
         title.setTextSize(16);
         title.setTypeface(Typeface.create("sans-serif-medium", Typeface.NORMAL));
-        title.setTextColor(Color.WHITE);
+        title.setTextColor(0xFF111111);
         title.setGravity(Gravity.CENTER);
         bar.addView(title, new LinearLayout.LayoutParams(0, -2, 1f));
 
@@ -89,7 +95,7 @@ public class ImagePickerActivity extends Activity {
         ScrollView sc = new ScrollView(this);
         grid = new LinearLayout(this);
         grid.setOrientation(LinearLayout.VERTICAL);
-        grid.setPadding(dp(5), dp(4), dp(5), dp(24));
+        grid.setPadding(dp(2), dp(2), dp(2), dp(24));
         sc.addView(grid);
         root.addView(sc, new LinearLayout.LayoutParams(-1, 0, 1f));
         setContentView(root);
@@ -133,7 +139,7 @@ public class ImagePickerActivity extends Activity {
     private void tip(String s) {
         TextView t = new TextView(this);
         t.setText(s);
-        t.setTextColor(0xFFAAAAAA);
+        t.setTextColor(0xFF999999);
         t.setTextSize(14);
         t.setGravity(Gravity.CENTER);
         t.setPadding(dp(20), dp(60), dp(20), dp(20));
@@ -179,20 +185,19 @@ public class ImagePickerActivity extends Activity {
                 row.setOrientation(LinearLayout.HORIZONTAL);
                 grid.addView(row, new LinearLayout.LayoutParams(-1, -2));
             }
-            row.addView(cellView(all.get(i), i),
-                    new LinearLayout.LayoutParams(cell, cell));
+            LinearLayout.LayoutParams cp = new LinearLayout.LayoutParams(cell, cell);
+            cp.leftMargin = dp(2);
+            cp.bottomMargin = dp(2);
+            row.addView(cellView(all.get(i), i), cp);
         }
     }
 
     private View cellView(final Uri uri, int index) {
         FrameLayout box = new FrameLayout(this);
-        LinearLayout.LayoutParams lp = new LinearLayout.LayoutParams(cell, cell);
-        lp.setMargins(dp(2), dp(2), dp(2), dp(2));
-        box.setLayoutParams(lp);
 
         final ImageView iv = new ImageView(this);
         iv.setScaleType(ImageView.ScaleType.CENTER_CROP);
-        iv.setBackgroundColor(0xFF2A2A2A);
+        iv.setBackgroundColor(0xFFEFEFEF);
         box.addView(iv, new FrameLayout.LayoutParams(-1, -1));
 
         final TextView badge = new TextView(this);
