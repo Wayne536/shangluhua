@@ -211,8 +211,8 @@ public class PreviewImportActivity extends Activity {
         card.addView(name);
 
         TextView rest = new TextView(this);
-        rest.setText("颜色 " + (it.colors.isEmpty() ? "（缺）" : it.colors)
-                + " · 尺码 " + it.sizes
+        rest.setText("颜色 " + (it.colors.isEmpty() ? "（缺）" : it.colors.replace("/", "、"))
+                + " · 尺码 " + it.sizes.replace("/", "、")
                 + (it.price.isEmpty() ? " · 用统一进价" : " · 进价 " + it.price));
         rest.setTextSize(12);
         rest.setTextColor(0xFF777777);
@@ -266,8 +266,8 @@ public class PreviewImportActivity extends Activity {
         box.setPadding(dp(20), dp(8), dp(20), 0);
         final EditText e1 = field("款号", it.no);
         final EditText e2 = field("名称", it.name);
-        final EditText e3 = field("颜色（用 / 分隔）", it.colors);
-        final EditText e4 = field("尺码（用 / 分隔）", it.sizes);
+        final EditText e3 = field("颜色（多个用 / 或 、 分开）", it.colors);
+        final EditText e4 = field("尺码（多个用 / 或 、 分开）", it.sizes);
         final EditText e5 = field("进货价（留空=用统一价）", it.price);
         box.addView(e1);
         box.addView(e2);
