@@ -104,16 +104,50 @@ public class NoteParser {
         Set<String> out = new LinkedHashSet<>();
         for (String s : in) {
             String low = s.toLowerCase();
-            if (low.matches("[smlx]{2,6}")) {
-                for (char ch : s.toCharArray()) out.add(String.valueOf(ch).toUpperCase());
-            } else if (low.equals("均") || low.equals("均码") || low.equals("f")) {
+            if (low.equals("均") || low.equals("均码") || low.equals("f") || low.equals("free")) {
                 out.add("均码");
-            } else if (low.equals("xxl")) {
-                out.add("2XL");
-            } else {
-                out.add(s.length() <= 3 ? s.toUpperCase() : s);
+                continue;
             }
+            // 全是 s/m/l/x 的连写（SML、SMLXL）拆成单个尺码；单个 XL/XXL 不能拆
+            if (low.matches("[smlx]{2,8}") && !low.matches("x{1,4}[sl]")) {
+                for (String t : tokenizeSizes(low)) out.add(canonSize(t));
+                continue;
+            }
+            out.add(canonSize(low));
         }
         return new ArrayList<>(out);
+    }
+
+    /** 把 smlxl 这种连写切成 s/m/l/xl（优先长匹配） */
+    private static List<String> tokenizeSizes(String low) {
+        List<String> out = new ArrayList<>();
+        int i = 0;
+        String[] tok = {"xxxl", "xxl", "xxs", "xl", "xs", "s", "m", "l", "x"};
+        while (i < low.length()) {
+            boolean hit = false;
+            for (String t : tok) {
+                if (low.startsWith(t, i)) {
+                    out.add(t);
+                    i += t.length();
+                    hit = true;
+                    break;
+                }
+            }
+            if (!hit) {
+                out.add(String.valueOf(low.charAt(i)));
+                i++;
+            }
+        }
+        return out;
+    }
+
+    private static String canonSize(String low) {
+        switch (low) {
+            case "xxl": return "2XL";
+            case "xxxl": return "3XL";
+            case "xxxxl": return "4XL";
+            case "xxs": return "2XS";
+            default: return low.length() <= 3 ? low.toUpperCase() : low;
+        }
     }
 }

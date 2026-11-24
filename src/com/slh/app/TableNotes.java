@@ -143,6 +143,10 @@ public class TableNotes {
     /** M-L → M/L；S~XL → S/M/L/XL；F/均 → 均码 */
     private static String normSizes(String s) {
         if (s.isEmpty()) return "";
+        // 「衣长56/胸围56」这种是尺寸描述，不是尺码，按均码处理
+        if (s.matches(".*(衣长|胸围|腰围|肩宽|袖长|裤长|裙长|臀围|克重|cm|CM|厘米).*")) {
+            return "均码";
+        }
         String[] ORDER = {"XS", "S", "M", "L", "XL", "2XL", "3XL", "4XL"};
         String v = s.trim().toUpperCase().replace(" ", "");
         if (v.equals("F") || v.equals("均") || v.equals("均码") || v.equals("FREE")) return "均码";
