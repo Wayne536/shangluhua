@@ -357,7 +357,7 @@ public class MainActivity extends Activity {
         tlp.topMargin = dp(10);
         card.addView(thumbScroll, tlp);
 
-        TextView hint = text("最多 9 张 · 长按缩略图可移除", 11, col(R.color.hint));
+        TextView hint = text("最多 9 张 · 点一下看大图 · 长按拖动排序", 11, col(R.color.hint));
         LinearLayout.LayoutParams hlp = new LinearLayout.LayoutParams(-2, -2);
         hlp.topMargin = dp(8);
         card.addView(hint, hlp);
@@ -956,21 +956,50 @@ public class MainActivity extends Activity {
             clearImgBtn.setVisibility(View.VISIBLE);
             imageCount.setText("已选 " + images.size() + " 张");
 
-            for (final Uri u : images) {
+            for (int i = 0; i < images.size(); i++) {
+                final Uri u = images.get(i);
+                FrameLayout box = new FrameLayout(this);
+                box.setClickable(true);
+                box.setContentDescription("第 " + (i + 1) + " 张，点一下看大图，长按拖动排序");
+
                 ImageView iv = new ImageView(this);
                 iv.setScaleType(ImageView.ScaleType.CENTER_CROP);
                 iv.setBackgroundResource(R.drawable.bg_thumb);
                 iv.setClipToOutline(true);
-                iv.setContentDescription("已选图片，长按移除");
-                LinearLayout.LayoutParams p = new LinearLayout.LayoutParams(dp(52), dp(52));
-                p.rightMargin = dp(8);
-                iv.setOnLongClickListener(v -> {
+                box.addView(iv, new FrameLayout.LayoutParams(-1, -1));
+
+                TextView del = new TextView(this);
+                del.setText("×");
+                del.setTextColor(Color.WHITE);
+                del.setTextSize(13);
+                del.setTypeface(Typeface.DEFAULT_BOLD);
+                del.setGravity(Gravity.CENTER);
+                GradientDrawable red = new GradientDrawable();
+                red.setColor(col(R.color.error));
+                red.setCornerRadius(dp(5));
+                del.setBackground(red);
+                del.setContentDescription("删除这张");
+                FrameLayout.LayoutParams dlp = new FrameLayout.LayoutParams(dp(18), dp(18),
+                        Gravity.TOP | Gravity.END);
+                dlp.topMargin = dp(2);
+                dlp.rightMargin = dp(2);
+                box.addView(del, dlp);
+                del.setOnClickListener(v -> {
                     images.remove(u);
                     rebuildThumbs();
                     snack("已移除一张");
+                });
+
+                box.setOnClickListener(v -> openImagePreview(u));
+                box.setOnLongClickListener(v -> {
+                    startThumbDrag(v);
                     return true;
                 });
-                thumbRow.addView(iv, p);
+                box.setOnTouchListener(thumbTouch);
+
+                LinearLayout.LayoutParams p = new LinearLayout.LayoutParams(dp(56), dp(56));
+                p.rightMargin = dp(8);
+                thumbRow.addView(box, p);
                 loadThumb(u, iv);
             }
 
@@ -979,11 +1008,107 @@ public class MainActivity extends Activity {
                 add.setGravity(Gravity.CENTER);
                 add.setBackgroundResource(R.drawable.bg_thumb);
                 add.setOnClickListener(v -> pickImages());
-                LinearLayout.LayoutParams p = new LinearLayout.LayoutParams(dp(52), dp(52));
+                LinearLayout.LayoutParams p = new LinearLayout.LayoutParams(dp(56), dp(56));
                 p.rightMargin = dp(8);
                 thumbRow.addView(add, p);
             }
         });
+    }
+
+    // ===== 缩略图：点开看大图 / 长按拖动排序 =====
+
+    private View dragView;
+    private int dragFrom = -1, dragTo = -1;
+    private float dragDownRawX;
+    private boolean draggingThumb;
+
+    private final View.OnTouchListener thumbTouch = (v, e) -> {
+        switch (e.getActionMasked()) {
+            case android.view.MotionEvent.ACTION_DOWN:
+                dragDownRawX = e.getRawX();
+                return false; // 先交给 View 处理点击 / 长按
+            case android.view.MotionEvent.ACTION_MOVE:
+                if (!draggingThumb || dragView != v) return false;
+                moveThumbDrag(v, e.getRawX() - dragDownRawX);
+                return true;
+            case android.view.MotionEvent.ACTION_UP:
+            case android.view.MotionEvent.ACTION_CANCEL:
+                if (draggingThumb && dragView == v) {
+                    endThumbDrag();
+                    return true;
+                }
+                return false;
+            default:
+                return false;
+        }
+    };
+
+    private void startThumbDrag(View v) {
+        if (draggingThumb) return;
+        int idx = thumbRow.indexOfChild(v);
+        if (idx < 0 || v.getWidth() == 0) return;
+        dragFrom = dragTo = idx;
+        dragView = v;
+        draggingThumb = true;
+        v.animate().scaleX(1.08f).scaleY(1.08f).setDuration(90).start();
+        v.setTranslationZ(dp(6));
+        v.performHapticFeedback(android.view.HapticFeedbackConstants.LONG_PRESS);
+        thumbScroll.requestDisallowInterceptTouchEvent(true);
+        snack("左右拖动调整顺序");
+    }
+
+    private void moveThumbDrag(View v, float dx) {
+        v.setTranslationX(dx);
+        LinearLayout.LayoutParams lp = (LinearLayout.LayoutParams) v.getLayoutParams();
+        int slot = v.getWidth() + lp.rightMargin;
+        if (slot <= 0) return;
+        int want = Math.round((v.getLeft() + dx) / (float) slot);
+        want = Math.max(0, Math.min(images.size() - 1, want));
+        if (want != dragTo) {
+            dragTo = want;
+            for (int i = 0; i < thumbRow.getChildCount(); i++) {
+                View c = thumbRow.getChildAt(i);
+                if (c == v) continue;
+                float shift = 0;
+                if (dragFrom < dragTo) {
+                    if (i > dragFrom && i <= dragTo) shift = -slot;
+                } else if (dragFrom > dragTo) {
+                    if (i >= dragTo && i < dragFrom) shift = slot;
+                }
+                c.animate().translationX(shift).setDuration(110).start();
+            }
+        }
+        int curX = v.getLeft() + Math.round(dx);
+        int left = thumbScroll.getScrollX();
+        int right = left + thumbScroll.getWidth();
+        if (curX < left + dp(28)) thumbScroll.scrollBy(-dp(14), 0);
+        else if (curX + v.getWidth() > right - dp(28)) thumbScroll.scrollBy(dp(14), 0);
+    }
+
+    private void endThumbDrag() {
+        View v = dragView;
+        int from = dragFrom, to = dragTo;
+        draggingThumb = false;
+        dragView = null;
+        dragFrom = dragTo = -1;
+        thumbScroll.requestDisallowInterceptTouchEvent(false);
+        if (v != null) {
+            v.animate().scaleX(1f).scaleY(1f).translationX(0).setDuration(120).start();
+            v.setTranslationZ(0);
+        }
+        if (from >= 0 && to >= 0 && from != to
+                && from < images.size() && to < images.size()) {
+            Uri moved = images.remove(from);
+            images.add(to, moved);
+            snack("顺序已调整");
+        }
+        rebuildThumbs();
+    }
+
+    private void openImagePreview(Uri u) {
+        Intent i = new Intent(this, ImagePreviewActivity.class);
+        i.putExtra("uri", u.toString());
+        startActivity(i);
     }
 
     private void loadThumb(final Uri u, final ImageView iv) {
