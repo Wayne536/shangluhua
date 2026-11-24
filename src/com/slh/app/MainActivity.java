@@ -60,6 +60,7 @@ import rikka.shizuku.Shizuku;
 public class MainActivity extends Activity {
 
     private static final int REQ_IMAGES = 2001;
+    private static final int REQ_PREVIEW = 2003;
     private static final int REQ_SHIZUKU = 1001;
     private static final int REQ_VPN = 2002;
     private static final int LV_INFO = 0, LV_OK = 1, LV_WARN = 2, LV_ERR = 3;
@@ -983,6 +984,13 @@ public class MainActivity extends Activity {
     @Override
     protected void onActivityResult(int req, int res, Intent data) {
         super.onActivityResult(req, res, data);
+        if (req == REQ_PREVIEW) {
+            if (res == RESULT_OK && data != null) {
+                ArrayList<String> edited = data.getStringArrayListExtra("notes");
+                if (edited != null && !edited.isEmpty()) startImport(edited);
+            }
+            return;
+        }
         if (req == REQ_VPN) {
             if (res == RESULT_OK) {
                 final boolean auto = pendingAuto;
@@ -1621,6 +1629,13 @@ public class MainActivity extends Activity {
             return;
         }
         final List<String> notes = splitNotes(text);
+        Intent preview = new Intent(this, PreviewImportActivity.class);
+        preview.putStringArrayListExtra("notes", new ArrayList<>(notes));
+        preview.putExtra("sid", session());
+        startActivityForResult(preview, REQ_PREVIEW);
+    }
+
+    private void startImport(final List<String> notes) {
         final String price = priceInput.getText().toString().trim();
         log("共 " + notes.size() + " 条笔记");
         setBusy(true, "准备导入…");
@@ -1749,8 +1764,24 @@ public class MainActivity extends Activity {
                 continue;
             }
 
+            // 颜色先做模糊匹配，避免「暗靛蓝」和「暗靛蓝色」各建一个
+            List<String> useColors = new ArrayList<>();
             List<String> miss = new ArrayList<>();
-            for (String c : n.colors) if (!colors.containsKey(c)) miss.add(c);
+            for (String c : n.colors) {
+                if (colors.containsKey(c)) {
+                    useColors.add(c);
+                    continue;
+                }
+                String hit = ColorMatch.resolve(c, colors.keySet());
+                if (hit != null) {
+                    log("颜色「" + c + "」用现有的「" + hit + "」");
+                    useColors.add(hit);
+                } else {
+                    useColors.add(c);
+                    miss.add(c);
+                }
+            }
+            n.colors = useColors;
             if (!miss.isEmpty()) {
                 log("新建颜色：" + Text.join(miss));
                 for (String c : miss) {
