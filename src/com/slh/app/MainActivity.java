@@ -86,6 +86,8 @@ public class MainActivity extends Activity {
     private boolean pendingAuto;
     /** 上次自动填进输入框的剪贴板内容，避免反复覆盖 */
     private String lastAutoFill = "";
+    /** 刚导入过的内容，别再被剪贴板自动填回来 */
+    private String lastImported = "";
     private boolean pickingImages;
     /** 长按后进入编辑：缩略图上出现 ⛔，可删可拖 */
     private boolean editMode;
@@ -779,7 +781,7 @@ public class MainActivity extends Activity {
             }
             CharSequence cs = cm.getPrimaryClip().getItemAt(0).coerceToText(this);
             String s = cs == null ? "" : cs.toString().trim();
-            if (!looksLikeNote(s) || s.equals(lastAutoFill)) return;
+            if (!looksLikeNote(s) || s.equals(lastAutoFill) || s.equals(lastImported)) return;
             String cur = input.getText().toString().trim();
             if (s.equals(cur)) return;
             if (!cur.isEmpty() && !cur.equals(lastAutoFill)) {
@@ -1641,6 +1643,7 @@ public class MainActivity extends Activity {
     }
 
     private void startImport(final List<String> notes) {
+        lastImported = input.getText().toString().trim();
         final String price = priceInput.getText().toString().trim();
         log("共 " + notes.size() + " 条笔记");
         setBusy(true, "准备导入…");
