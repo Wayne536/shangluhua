@@ -96,7 +96,7 @@ public class NoteParser {
         } else {
             n.no = rawCode;
         }
-        n.name = name.trim();
+        n.name = reorderName(name.trim());
         n.colors = splitList(colors);
         n.sizes = normSizes(splitList(sizes));
         if (n.sizes.isEmpty()) n.sizes.add("均码");
@@ -132,6 +132,11 @@ public class NoteParser {
                 String t = p.trim();
                 if (t.isEmpty()) continue;
                 if (isSizeToken(t)) continue;
+                String full = t.replaceFirst("^款\\s*", "").trim();
+                if (full.matches(".*[0-9]%.*") && full.matches("[\\u4e00-\\u9fa5A-Za-z0-9%.]+")) {
+                    n.name = full;
+                    break;
+                }
                 // 「拉毛花边100%山羊绒」→ 取数字前面的部分当名称；纯成分词才跳过
                 String cand = t.replaceAll("[0-9%０-９].*$", "").trim();
                 cand = cand.replaceFirst("^款\\s*", "").trim();
@@ -210,6 +215,20 @@ public class NoteParser {
                 || v.matches("^(XXS|XS|S|M|L|XL|2XL|3XL)[一二三四五六]码$");
     }
 
+    /** 「拉毛花边100%山羊绒」→「100%山羊绒拉毛花边」：带成分百分比的，把成分挪到前面 */
+    private static String reorderName(String name) {
+        if (name == null || name.isEmpty()) return "";
+        java.util.regex.Matcher m = java.util.regex.Pattern
+                .compile("^(.*?)([0-9]+(?:\\.[0-9]+)?%\\s*[\\u4e00-\\u9fa5]{1,8})$")
+                .matcher(name.trim());
+        if (m.find()) {
+            String head = m.group(1).trim();
+            String mat = m.group(2).trim();
+            if (!head.isEmpty()) return mat + head;
+        }
+        return name;
+    }
+
     private static String joinSlash(List<String> l) {
         StringBuilder sb = new StringBuilder();
         for (String s : l) {
@@ -238,7 +257,24 @@ public class NoteParser {
 
     private static List<String> normSizes(List<String> in) {
         Set<String> out = new LinkedHashSet<>();
+        final String[] ORDER = {"XS", "S", "M", "L", "XL", "2XL", "3XL", "4XL"};
         for (String s : in) {
+            String dash = s.replace('一', '-').replace('—', '-').replace('–', '-')
+                    .replace('~', '-').replace('～', '-').replace('至', '-').replace(' ', '-');
+            java.util.regex.Matcher rm = java.util.regex.Pattern
+                    .compile("^([A-Za-z]{1,3})-([A-Za-z]{1,3})$").matcher(dash);
+            if (rm.find()) {
+                String a = rm.group(1).toUpperCase(), b = rm.group(2).toUpperCase();
+                int ia = -1, ib = -1;
+                for (int i = 0; i < ORDER.length; i++) {
+                    if (ORDER[i].equals(a)) ia = i;
+                    if (ORDER[i].equals(b)) ib = i;
+                }
+                if (ia >= 0 && ib >= 0) {
+                    for (int i = Math.min(ia, ib); i <= Math.max(ia, ib); i++) out.add(ORDER[i]);
+                    continue;
+                }
+            }
             String low = s.toLowerCase();
             if (low.equals("均") || low.equals("均码") || low.equals("f") || low.equals("free")) {
                 out.add("均码");
