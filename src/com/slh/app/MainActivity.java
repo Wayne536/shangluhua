@@ -260,6 +260,9 @@ public class MainActivity extends Activity {
         pasteBtn = textButton("粘贴", R.drawable.ic_paste);
         pasteBtn.setOnClickListener(v -> pasteClipboard());
         head.addView(pasteBtn);
+        TextView readBtn = textButton("全文", 0);
+        readBtn.setOnClickListener(v -> showFullNote());
+        head.addView(readBtn);
         clearTextBtn = textButton("清空", 0);
         clearTextBtn.setOnClickListener(v -> {
             input.setText("");
@@ -1315,6 +1318,34 @@ public class MainActivity extends Activity {
             snack("顺序已调整");
         }
         rebuildThumbs();
+    }
+
+    /** 全文弹窗：可滚动阅读，长文不再只看得到最后几行 */
+    private void showFullNote() {
+        String text = input.getText().toString();
+        if (text.trim().isEmpty()) {
+            snack("笔记是空的");
+            return;
+        }
+        ScrollView sc = new ScrollView(this);
+        TextView tv = new TextView(this);
+        tv.setText(text);
+        tv.setTextSize(14);
+        tv.setTextIsSelectable(true);
+        tv.setLineSpacing(dp(4), 1f);
+        tv.setPadding(dp(18), dp(14), dp(18), dp(14));
+        sc.addView(tv);
+        new android.app.AlertDialog.Builder(this)
+                .setTitle("笔记全文 · " + text.length() + " 字")
+                .setView(sc)
+                .setPositiveButton("关闭", null)
+                .setNeutralButton("复制", (d, w) -> {
+                    android.content.ClipboardManager cm =
+                            (android.content.ClipboardManager) getSystemService(CLIPBOARD_SERVICE);
+                    cm.setPrimaryClip(android.content.ClipData.newPlainText("note", text));
+                    snack("已复制全文");
+                })
+                .show();
     }
 
     private void shareLog() {

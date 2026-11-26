@@ -41,8 +41,25 @@ public class ColorPatch {
                     if (hit != null) c = colors.get(hit);
                 }
                 if (c == null) {
-                    log.log("⚠ 颜色「" + name + "」不在字典里，跳过");
-                    continue;
+                    // 字典里没有就建一个（和新建货品时的行为一致）
+                    try {
+                        api.createColor(name);
+                        log.log("＋ 新建颜色：" + name);
+                        Map<String, JSONObject> fresh = api.colors();
+                        colors.putAll(fresh);
+                    } catch (Throwable t) {
+                        log.log("⚠ 颜色「" + name + "」新建失败，跳过");
+                        continue;
+                    }
+                    c = colors.get(name);
+                    if (c == null) {
+                        String hit = ColorMatch.resolve(name, colors.keySet());
+                        if (hit != null) c = colors.get(hit);
+                    }
+                    if (c == null) {
+                        log.log("⚠ 颜色「" + name + "」建完也找不到，跳过");
+                        continue;
+                    }
                 }
                 String sid = c.optString("sid");
                 if (sid.isEmpty() || allIds.contains(sid)) continue;
