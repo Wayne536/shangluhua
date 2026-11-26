@@ -179,6 +179,7 @@ public class PreviewImportActivity extends Activity {
                 it.status = checked ? ST_NEW : ST_UNKNOWN;
             }
             // 补色清单：已存在的话，看它现有颜色和笔记差哪些
+            it.missing.clear();
             if (it.status == ST_EXISTS && colorMap != null && !it.colors.isEmpty()) {
                 if (it.existCode == null || it.existCode.isEmpty()) it.existCode = matchCode(it.no);
                 String ids = styleColors.get(it.existCode);
