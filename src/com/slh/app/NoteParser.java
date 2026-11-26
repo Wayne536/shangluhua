@@ -131,26 +131,19 @@ public class NoteParser {
             for (String p : rest.split("[，,。、；;]")) {
                 String t = p.trim();
                 if (t.isEmpty()) continue;
-                if (t.matches(".*[0-9%].*")) continue;
                 if (isSizeToken(t)) continue;
-                if (t.matches(".*(羊毛|羊绒|棉|腈纶|锦纶|氨纶|聚酯|莱赛尔|亚麻|真丝|莫代尔|粘纤|天丝|涤纶|绒|里料).*")) continue;
-                if (t.matches(".*[\\u4e00-\\u9fa5].*")) {
-                    n.name = t;
+                // 「拉毛花边100%山羊绒」→ 取数字前面的部分当名称；纯成分词才跳过
+                String cand = t.replaceAll("[0-9%０-９].*$", "").trim();
+                cand = cand.replaceFirst("^款\\s*", "").trim();
+                if (cand.length() >= 2 && cand.matches("[\\u4e00-\\u9fa5A-Za-z]+")
+                        && !cand.matches("^(羊毛|羊绒|山羊绒|棉|腈纶|锦纶|氨纶|聚酯|莱赛尔|亚麻|真丝|莫代尔|粘纤|天丝|涤纶|里料)+$")) {
+                    n.name = cand;
                     break;
                 }
             }
         }
         if (n.sizes.isEmpty() && sizes0.isEmpty()) {
-            java.util.List<String> sz = new ArrayList<>();
-            java.util.regex.Matcher sm = java.util.regex.Pattern
-                    .compile("(?<![A-Za-z])(XXS|XS|S|M|L|XL|XXL|2XL|3XL|4XL)(?![A-Za-z])")
-                    .matcher(first.toUpperCase());
-            while (sm.find()) sz.add(sm.group(1));
-            if (first.contains("均码")) {
-                sz.clear();
-                sz.add("均码");
-            }
-            if (!sz.isEmpty()) n.sizes = sz;
+            n.sizes = findSizesLoose(lines);
         }
         if (n.colors.isEmpty() && colors0.isEmpty()) {
             Set<String> cs = new LinkedHashSet<>();
@@ -167,6 +160,48 @@ public class NoteParser {
             }
             if (!cs.isEmpty()) n.colors = new ArrayList<>(cs);
         }
+    }
+
+    /** 无标签笔记里找尺码：优先在含「分/码/尺码」的行里找，支持 M一L 这种写法 */
+    private static List<String> findSizesLoose(String[] lines) {
+        List<String> out = new ArrayList<>();
+        String[] order = {"XS", "S", "M", "L", "XL", "2XL", "3XL", "4XL"};
+        for (String raw : lines) {
+            String line = raw.replace('一', '-').replace('－', '-').replace('–', '-')
+                    .replace('~', '-').replace('～', '-').replace('至', '-')
+                    .replace('—', '-').replace('─', '-');
+            boolean hint = line.contains("分") || line.contains("码") || line.contains("尺码")
+                    || line.contains("均码");
+            java.util.regex.Matcher rm = java.util.regex.Pattern
+                    .compile("(?i)([A-Za-z]{1,3})\\s*-\\s*([A-Za-z]{1,3})").matcher(line);
+            if (rm.find()) {
+                String a = rm.group(1).toUpperCase(), b = rm.group(2).toUpperCase();
+                int ia = indexOfSize(order, a), ib = indexOfSize(order, b);
+                if (ia >= 0 && ib >= 0) {
+                    for (int i = Math.min(ia, ib); i <= Math.max(ia, ib); i++) out.add(order[i]);
+                    return out;
+                }
+                out.add(a);
+                out.add(b);
+                return out;
+            }
+            if (!hint) continue;
+            java.util.regex.Matcher sm = java.util.regex.Pattern
+                    .compile("(?<![A-Za-z])(XXS|XS|S|M|L|XL|XXL|2XL|3XL|4XL)(?![A-Za-z])")
+                    .matcher(line.toUpperCase());
+            while (sm.find()) out.add(sm.group(1));
+            if (line.contains("均码")) {
+                out.clear();
+                out.add("均码");
+            }
+            if (!out.isEmpty()) return out;
+        }
+        return out;
+    }
+
+    private static int indexOfSize(String[] order, String v) {
+        for (int i = 0; i < order.length; i++) if (order[i].equals(v)) return i;
+        return -1;
     }
 
     private static boolean isSizeToken(String t) {
