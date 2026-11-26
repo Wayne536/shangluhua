@@ -390,6 +390,11 @@ public class MainActivity extends Activity {
         captureBtn = bigButton("抓取登录会话", R.drawable.ic_sync, false);
         captureLabel = (TextView) ((LinearLayout) captureBtn).getChildAt(1);
         captureBtn.setOnClickListener(v -> onCaptureClick());
+        // 长按：App 内抓包 120 秒（调试用，抓商陆花保存货品的请求）
+        captureBtn.setOnLongClickListener(v -> {
+            startSniff(120);
+            return true;
+        });
         LinearLayout.LayoutParams lp2 = new LinearLayout.LayoutParams(-1, dp(48));
         lp2.topMargin = dp(10);
         content.addView(captureBtn, lp2);
@@ -656,6 +661,59 @@ public class MainActivity extends Activity {
             } catch (Throwable ignored) {
             }
         }
+    }
+
+    /** 调试：App 内跑代理抓包，导出到 cap.log，用来找商陆花的保存接口 */
+    private void startSniff(final int secs) {
+        new android.app.AlertDialog.Builder(this)
+                .setTitle("抓包 " + secs + " 秒")
+                .setMessage("会把系统代理指到本机，然后你到商陆花里给货品加颜色并保存。"
+                        + "\n\n期间商陆花可能报网络错误，正常。结束后自动恢复代理。")
+                .setPositiveButton("开始", (d, w) -> doSniff(secs))
+                .setNegativeButton("取消", null)
+                .show();
+    }
+
+    private void doSniff(final int secs) {
+        log("=== 抓包开始 " + secs + "秒 ===");
+        ProxyCatcher.dumpBody = true;
+        ProxyCatcher.dumpTunnel = true;   // 记录加密隧道首包
+        ProxyCatcher.blockDataTunnel = false;
+        final ProxyCatcher p = new ProxyCatcher();
+        try {
+            p.start(8899, sid -> {}, s2 -> log(s2));
+        } catch (Throwable t) {
+            log("代理启动失败：" + t);
+            ProxyCatcher.dumpBody = false;
+            ProxyCatcher.blockDataTunnel = false;
+            return;
+        }
+        final AutoCapture ac = new AutoCapture(this::log);
+        new Thread(() -> {
+            try {
+                ac.sh("settings put global http_proxy 127.0.0.1:8899");
+            } catch (Throwable t) {
+                log("代理设置失败：" + t);
+            }
+            try {
+                Thread.sleep(secs * 1000L);
+            } catch (InterruptedException ignored) {
+            }
+            try {
+                ac.sh("settings put global http_proxy :0");
+            } catch (Throwable t) {
+                log("代理恢复失败：" + t);
+            }
+            p.stop();
+            ProxyCatcher.blockDataTunnel = false;
+            ProxyCatcher.dumpBody = false;
+            ProxyCatcher.dumpTunnel = false;
+            ui.post(() -> {
+                log("=== 抓包结束，代理已恢复 ===");
+                snack("抓包结束");
+            });
+        }).start();
+        snack("抓包中 " + secs + " 秒，去商陆花里保存一次");
     }
 
     private void setCaptureHint(final String s) {
@@ -1733,6 +1791,16 @@ public class MainActivity extends Activity {
         List<String> codes = api.codes();
         log("颜色 " + colors.size() + " 个，尺码 " + sizes.size() + " 个，货品 " + codes.size() + " 条");
 
+        // 已存在的款号：补色要用它的完整记录（拿 id 和现有颜色）
+        java.util.Set<String> existWant = new java.util.HashSet<>();
+        for (String note : notes) {
+            NoteParser np = NoteParser.parse(note);
+            String hit = existingCode(codes, np.no);
+            if (hit != null) existWant.add(hit);
+        }
+        Map<String, JSONObject> existRecs = existWant.isEmpty()
+                ? new java.util.HashMap<>() : api.styleRecords(existWant);
+
         String fileid = "";
         if (!images.isEmpty()) {
             statusBusy("上传图片…");
@@ -1783,8 +1851,18 @@ public class MainActivity extends Activity {
             }
             String existHit = existingCode(codes, n.no);
             if (existHit != null) {
-                log("⏭ " + n.no + " 已存在" + (existHit.equals(n.no) ? "" : "（商陆花 " + existHit + "）"));
-                skip++;
+                JSONObject rec = existRecs.get(existHit);
+                String styleId = rec == null ? "" : rec.optString("id");
+                if (styleId.isEmpty()) {
+                    log("⏭ " + n.no + " 已存在，但读不到 id，跳过");
+                    skip++;
+                    continue;
+                }
+                log("↻ " + n.no + " 已存在（商陆花 " + existHit + "），补色…");
+                int added = ColorPatch.addColors(api, styleId, n.colors, colors, sizes, this::log);
+                if (added > 0) ok++;
+                else if (added == 0) skip++;
+                else fail++;
                 continue;
             }
 

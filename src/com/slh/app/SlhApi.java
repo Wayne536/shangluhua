@@ -154,6 +154,52 @@ public class SlhApi {
         return out;
     }
 
+    /** 取货品的完整记录（含 id、colorids、sizeids），补色用 */
+    public Map<String, JSONObject> styleRecords(java.util.Set<String> want) throws Exception {
+        Map<String, JSONObject> out = new LinkedHashMap<>();
+        int off = 0;
+        while (off < 6000 && out.size() < want.size()) {
+            Map<String, String> e = new HashMap<>();
+            e.put("type", "dres_style");
+            e.put("offset", String.valueOf(off));
+            e.put("limit", "500");
+            e.put("lastSyncTime", "2000-01-01 00:00:00");
+            JSONObject r = call("cs-syncdata", e);
+            JSONArray dl = r.optJSONArray("dataList");
+            if (dl == null || dl.length() == 0) break;
+            for (int i = 0; i < dl.length(); i++) {
+                JSONObject o = dl.optJSONObject(i);
+                if (o == null) continue;
+                String c = o.optString("code");
+                if (want.contains(c) || want.contains(suffixCode(c))) out.put(c, o);
+            }
+            off += dl.length();
+            if (dl.length() < 500) break;
+        }
+        return out;
+    }
+
+    /** 新版网关（TLS）：保存类接口只有这个网关认 upsert */
+    public JSONObject callTls(String iface, Map<String, String> extra) throws Exception {
+        Map<String, String> p = base(iface);
+        if (extra != null) p.putAll(extra);
+        return post("https://dsa13a.slh.hzdlsoft.com:8413/slh/callInterface.do", p);
+    }
+
+    /** 货品完整详情（和 App 保存时用的那份一样） */
+    public JSONObject styleDetail(String styleId) throws Exception {
+        Map<String, String> e = new HashMap<>();
+        e.put("pk", styleId);
+        return callTls("qf-1511", e);
+    }
+
+    /** 保存货品（sf-1511 是 upsert：带 modelClass=DresStyle 就是修改） */
+    public JSONObject saveStyle(JSONObject payload) throws Exception {
+        Map<String, String> e = new HashMap<>();
+        e.put("jsonparam", payload.toString());
+        return callTls("sf-1511", e);
+    }
+
     /** 只查这些款号的 colorids，找到就提前停，避免每次都全表扫 */
     public Map<String, String> styleColors(java.util.Set<String> want) throws Exception {
         Map<String, String> out = new HashMap<>();

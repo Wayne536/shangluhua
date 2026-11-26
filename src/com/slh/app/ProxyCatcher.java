@@ -59,6 +59,9 @@ public class ProxyCatcher {
         return host.contains("dsa13a") || host.contains("gdoc01c");
     }
 
+    /** 调试：把隧道首包按十六进制打出来，看看到底是不是 TLS */
+    public static volatile boolean dumpTunnel = false;
+
     /** 主动掐断已经连着的数据隧道 */
     public void killDataTunnels() {
         synchronized (tunnels) {
@@ -189,7 +192,12 @@ public class ProxyCatcher {
                     uo.write(extra);
                     uo.flush();
                 }
-                pumpBoth(client, upstream, false);
+                if (dumpTunnel && isDataTunnel(host)) {
+                    log("[tunnel] " + host + ":" + port + " 开始记录首包");
+                    pumpBoth(client, upstream, false, true);
+                } else {
+                    pumpBoth(client, upstream, false, false);
+                }
                 return;
             }
 
@@ -280,8 +288,12 @@ public class ProxyCatcher {
     }
 
     private void pumpBoth(Socket client, Socket upstream, boolean plainHttp) {
-        Thread up = new Thread(() -> pump(client, upstream, plainHttp, false), "proxy-c2u");
-        Thread down = new Thread(() -> pump(upstream, client, false, plainHttp), "proxy-u2c");
+        pumpBoth(client, upstream, plainHttp, false);
+    }
+
+    private void pumpBoth(Socket client, Socket upstream, boolean plainHttp, boolean dump) {
+        Thread up = new Thread(() -> pump(client, upstream, plainHttp, false, dump, "c2s"), "proxy-c2u");
+        Thread down = new Thread(() -> pump(upstream, client, false, plainHttp, dump, "s2c"), "proxy-u2c");
         up.setDaemon(true);
         down.setDaemon(true);
         up.start();
@@ -294,6 +306,11 @@ public class ProxyCatcher {
     }
 
     private void pump(Socket from, Socket to, boolean scan, boolean logStatus) {
+        pump(from, to, scan, logStatus, false, "");
+    }
+
+    private void pump(Socket from, Socket to, boolean scan, boolean logStatus,
+                      boolean dump, String dir) {
         byte[] buf = new byte[8192];
         byte[] carry = new byte[0];
         boolean first = true;
@@ -312,6 +329,19 @@ public class ProxyCatcher {
                     System.arraycopy(buf, 0, joined, carry.length, n);
                     scan(new String(joined, StandardCharsets.ISO_8859_1));
                     carry = Arrays.copyOfRange(buf, Math.max(0, n - 64), n);
+                }
+                if (dump && first) {
+                    first = false;
+                    StringBuilder hex = new StringBuilder();
+                    StringBuilder asc = new StringBuilder();
+                    int m = Math.min(n, 48);
+                    for (int i = 0; i < m; i++) {
+                        int b = buf[i] & 0xff;
+                        hex.append(String.format("%02x ", b));
+                        asc.append(b >= 32 && b < 127 ? (char) b : '.');
+                    }
+                    log("[tunnel " + dir + "] " + n + "B " + hex);
+                    log("[tunnel " + dir + "] ascii " + asc);
                 }
                 if (logStatus && first) {
                     first = false;
