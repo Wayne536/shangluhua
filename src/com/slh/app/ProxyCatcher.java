@@ -43,6 +43,8 @@ public class ProxyCatcher {
     private static final int MAX_BODY_SCAN = 256 * 1024;
     /** 自测用：模拟所有上游都连不上 */
     public static volatile boolean testFailUpstream = false;
+    /** 抓包调试：把 POST 的请求体也写进日志（找接口用） */
+    public static volatile boolean dumpBody = false;
 
     private ServerSocket server;
     private volatile boolean running;
@@ -234,6 +236,10 @@ public class ProxyCatcher {
             byte[] body = readBody(client, extra, clen);
             scan(headStr);
             scan(new String(body, StandardCharsets.ISO_8859_1));
+            if (dumpBody && body.length > 0 && "POST".equalsIgnoreCase(method)) {
+                String b = new String(body, StandardCharsets.UTF_8);
+                log("[req " + host + "] " + (b.length() > 3000 ? b.substring(0, 3000) + "…" : b));
+            }
 
             if (testFailUpstream && path.contains("api.do")) {
                 log("自测：故意让 " + path + " 连接失败");

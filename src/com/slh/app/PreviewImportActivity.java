@@ -17,6 +17,7 @@ import android.widget.TextView;
 import org.json.JSONObject;
 
 import java.util.ArrayList;
+import java.util.HashMap;
 import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Map;
@@ -28,6 +29,9 @@ public class PreviewImportActivity extends Activity {
 
     private static class Item {
         String no = "", name = "", colors = "", sizes = "", price = "";
+        String existCode = "";     // 商陆花里对应的款号（可能带前缀）
+        List<String> missing = new ArrayList<>();  // 已有货品缺的颜色
+        int existColors = 0;
         int status = ST_UNKNOWN;
     }
 
@@ -38,6 +42,7 @@ public class PreviewImportActivity extends Activity {
     private boolean checked;
     private Map<String, JSONObject> colorMap;
     private Map<String, JSONObject> sizeMap;
+    private Map<String, String> styleColors = new HashMap<>(); // 款号 -> colorids
     private List<String> codes;
 
     @Override
@@ -135,7 +140,16 @@ public class PreviewImportActivity extends Activity {
                 Map<String, JSONObject> cm = api.colors();
                 Map<String, JSONObject> sm = api.sizes();
                 List<String> cs = api.codes();
+                // 已存在的款号：把它的现有颜色也拉出来，算「补色清单」
+                java.util.Set<String> want = new java.util.HashSet<>();
+                for (Item it : items) {
+                    for (String c : cs) {
+                        if (c.equals(it.no) || c.endsWith("-" + it.no)) want.add(c);
+                    }
+                }
+                Map<String, String> sc = want.isEmpty() ? new HashMap<>() : api.styleColors(want);
                 runOnUiThread(() -> {
+                    styleColors = sc;
                     colorMap = cm;
                     sizeMap = sm;
                     codes = cs;
@@ -158,11 +172,36 @@ public class PreviewImportActivity extends Activity {
             Item it = items.get(i);
             if (it.no.isEmpty() || it.name.isEmpty() || it.colors.isEmpty()) {
                 it.status = ST_MISSING;
-            } else if (checked && codes != null && codes.contains(it.no)) {
+            } else if (checked && codes != null && findExisting(it.no) != null) {
                 it.status = ST_EXISTS;
+                it.existCode = findExisting(it.no);
             } else {
                 it.status = checked ? ST_NEW : ST_UNKNOWN;
             }
+            // 补色清单：已存在的话，看它现有颜色和笔记差哪些
+            if (it.status == ST_EXISTS && colorMap != null && !it.colors.isEmpty()) {
+                if (it.existCode == null || it.existCode.isEmpty()) it.existCode = matchCode(it.no);
+                String ids = styleColors.get(it.existCode);
+                Map<String, String> nameBySid = new HashMap<>();
+                for (Map.Entry<String, JSONObject> en : colorMap.entrySet()) {
+                    nameBySid.put(en.getValue().optString("sid"), en.getKey());
+                }
+                java.util.Set<String> have = new java.util.HashSet<>();
+                if (ids != null) {
+                    for (String id : ids.split(",")) {
+                        String nm = nameBySid.get(id.trim());
+                        if (nm != null) have.add(nm);
+                    }
+                }
+                it.existColors = have.size();
+                for (String c : it.colors.split("/")) {
+                    String v = c.trim();
+                    if (v.isEmpty()) continue;
+                    String hit = have.contains(v) ? v : ColorMatch.resolve(v, have);
+                    if (hit == null) it.missing.add(v);
+                }
+            }
+
             if (it.status == ST_MISSING) nMiss++;
             else if (it.status == ST_EXISTS) nExist++;
             else if (it.status == ST_NEW) nNew++;
@@ -222,6 +261,22 @@ public class PreviewImportActivity extends Activity {
         rest.setPadding(0, dp(2), 0, 0);
         card.addView(rest);
 
+        if (it.status == ST_EXISTS && !it.colors.isEmpty()) {
+            TextView cnt = new TextView(this);
+            String txt;
+            if (it.missing.isEmpty()) {
+                txt = "现有 " + it.existColors + " 色 · 笔记里的颜色都有";
+            } else {
+                txt = "商陆花 " + it.existCode + " 现有 " + it.existColors + " 色 · 缺 "
+                        + it.missing.size() + " 色：" + shortList(it.missing);
+            }
+            cnt.setText(txt);
+            cnt.setTextSize(12);
+            cnt.setTextColor(it.missing.isEmpty() ? 0xFF43A047 : 0xFFB26A00);
+            cnt.setPadding(0, dp(3), 0, 0);
+            card.addView(cnt);
+        }
+
         card.setOnClickListener(v -> edit(idx));
         return card;
     }
@@ -251,6 +306,43 @@ public class PreviewImportActivity extends Activity {
             sb.append(v);
         }
         if (miss) sb.append("（商陆花里没有这几个）");
+        return sb.toString();
+    }
+
+    /** 精确找不到时按后缀匹配（笔记写 8806，商陆花里是 20-8806） */
+    private String findExisting(String no) {
+        if (codes == null) return null;
+        for (String c : codes) {
+            if (c.equals(no)) return c;
+        }
+        for (String c : codes) {
+            if (c.endsWith("-" + no)) return c;
+        }
+        return null;
+    }
+
+    private String matchCode(String no) {
+        for (String c : styleColors.keySet()) {
+            if (c.equals(no)) return c;
+        }
+        for (String c : styleColors.keySet()) {
+            if (c.endsWith("-" + no)) return c;
+        }
+        return no;
+    }
+
+    private static String shortList(List<String> l) {
+        StringBuilder sb = new StringBuilder();
+        int n = 0;
+        for (String s : l) {
+            if (n >= 6) {
+                sb.append("…");
+                break;
+            }
+            if (n > 0) sb.append("、");
+            sb.append(s);
+            n++;
+        }
         return sb.toString();
     }
 

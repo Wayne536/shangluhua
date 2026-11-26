@@ -57,8 +57,21 @@ public class SlhApi {
     public JSONObject call(String iface, Map<String, String> extra) throws Exception {
         Map<String, String> p = base(iface);
         if (extra != null) p.putAll(extra);
+        return post(BASE, p);
+    }
+
+    /** 新版接口：/slh/api.do + apiKey + jsonParam */
+    public JSONObject callApi(String apiKey, String jsonParam) throws Exception {
+        Map<String, String> p = base("");
+        p.remove("interfaceid");
+        p.put("apiKey", apiKey);
+        p.put("jsonParam", jsonParam);
+        return post("http://" + HOST + ":" + PORT + "/slh/api.do", p);
+    }
+
+    private JSONObject post(String url, Map<String, String> p) throws Exception {
         byte[] body = enc(p).getBytes("UTF-8");
-        HttpURLConnection c = (HttpURLConnection) new URL(BASE).openConnection();
+        HttpURLConnection c = (HttpURLConnection) new URL(url).openConnection();
         c.setRequestMethod("POST");
         c.setDoOutput(true);
         c.setConnectTimeout(20000);
@@ -139,6 +152,38 @@ public class SlhApi {
             if (dl.length() < 1000) break;
         }
         return out;
+    }
+
+    /** 只查这些款号的 colorids，找到就提前停，避免每次都全表扫 */
+    public Map<String, String> styleColors(java.util.Set<String> want) throws Exception {
+        Map<String, String> out = new HashMap<>();
+        int off = 0;
+        while (off < 6000 && out.size() < want.size()) {
+            Map<String, String> e = new HashMap<>();
+            e.put("type", "dres_style");
+            e.put("offset", String.valueOf(off));
+            e.put("limit", "500");
+            e.put("lastSyncTime", "2000-01-01 00:00:00");
+            JSONObject r = call("cs-syncdata", e);
+            JSONArray dl = r.optJSONArray("dataList");
+            if (dl == null || dl.length() == 0) break;
+            for (int i = 0; i < dl.length(); i++) {
+                JSONObject o = dl.optJSONObject(i);
+                if (o == null) continue;
+                String c = o.optString("code");
+                if (want.contains(c) || want.contains(suffixCode(c))) {
+                    out.put(c, o.optString("colorids"));
+                }
+            }
+            off += dl.length();
+            if (dl.length() < 500) break;
+        }
+        return out;
+    }
+
+    public static String suffixCode(String code) {
+        int i = code.lastIndexOf('-');
+        return i > 0 ? code.substring(i + 1) : code;
     }
 
     public JSONObject createColor(String name) throws Exception {

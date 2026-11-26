@@ -1680,6 +1680,16 @@ public class MainActivity extends Activity {
         }).start();
     }
 
+    /** 精确找不到就按后缀匹配：笔记写 8806，商陆花里是 20-8806 */
+    private static String existingCode(List<String> codes, String no) {
+        if (codes == null || no == null || no.isEmpty()) return null;
+        if (codes.contains(no)) return no;
+        for (String c : codes) {
+            if (c.endsWith("-" + no)) return c;
+        }
+        return null;
+    }
+
     private void showResult(int ok, int skip, int fail) {
         resultCard.setVisibility(View.VISIBLE);
         resultOk.setText(String.valueOf(ok));
@@ -1771,8 +1781,9 @@ public class MainActivity extends Activity {
                 fail++;
                 continue;
             }
-            if (codes.contains(n.no)) {
-                log("⏭ " + n.no + " 已存在");
+            String existHit = existingCode(codes, n.no);
+            if (existHit != null) {
+                log("⏭ " + n.no + " 已存在" + (existHit.equals(n.no) ? "" : "（商陆花 " + existHit + "）"));
                 skip++;
                 continue;
             }
