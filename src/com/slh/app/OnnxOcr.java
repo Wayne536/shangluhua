@@ -153,6 +153,7 @@ public class OnnxOcr {
             }
         }
         if (boxes.isEmpty()) return new ArrayList<>();
+        boxes = mergeLines(boxes);
 
         // 按行排序：y 相近的算一行
         Integer[] order = new Integer[boxes.size()];
@@ -177,8 +178,15 @@ public class OnnxOcr {
             int y2 = Math.min(bmp.getHeight(), Math.round(b[3] * sy));
             if (x2 - x1 < 6 || y2 - y1 < 6) continue;
             Bitmap crop = Bitmap.createBitmap(bmp, x1, y1, x2 - x1, y2 - y1);
+            int cw = crop.getWidth(), ch = crop.getHeight();
+            if (ch >= cw * 1.5f) {
+                android.graphics.Matrix m = new android.graphics.Matrix();
+                m.postRotate(-90);
+                crop = Bitmap.createBitmap(crop, 0, 0, cw, ch, m, true);
+            }
             int rh = 48;
-            int rw = Math.max(16, Math.min(420, Math.round((float) (x2 - x1) * rh / (y2 - y1))));
+            int rw = Math.max(16, Math.min(420,
+                    Math.round((float) crop.getWidth() * rh / crop.getHeight())));
             Bitmap scaled = Bitmap.createScaledBitmap(crop, rw, rh, true);
             float[] pix = new float[3 * rh * rw];
             for (int yy = 0; yy < rh; yy++) {
@@ -228,6 +236,48 @@ public class OnnxOcr {
             out.add(new Line(text.trim(), conf, y1));
         }
         return out;
+    }
+
+    /** 把挨着的字符框合成一行（横排按左右，竖排按上下） */
+    private static List<int[]> mergeLines(List<int[]> in) {
+        List<int[]> list = new ArrayList<>();
+        for (int[] b : in) list.add(b.clone());
+        boolean changed = true;
+        while (changed) {
+            changed = false;
+            outer:
+            for (int i = 0; i < list.size(); i++) {
+                for (int j = i + 1; j < list.size(); j++) {
+                    int[] a = list.get(i), b = list.get(j);
+                    if (near(a, b)) {
+                        list.set(i, new int[]{
+                                Math.min(a[0], b[0]), Math.min(a[1], b[1]),
+                                Math.max(a[2], b[2]), Math.max(a[3], b[3])});
+                        list.remove(j);
+                        changed = true;
+                        break outer;
+                    }
+                }
+            }
+        }
+        return list;
+    }
+
+    private static boolean near(int[] a, int[] b) {
+        int aw = a[2] - a[0], ah = a[3] - a[1];
+        int bw = b[2] - b[0], bh = b[3] - b[1];
+        if (aw <= 0 || ah <= 0 || bw <= 0 || bh <= 0) return false;
+        float ox = Math.max(0, Math.min(a[2], b[2]) - Math.max(a[0], b[0]));
+        float oy = Math.max(0, Math.min(a[3], b[3]) - Math.max(a[1], b[1]));
+        float gx = Math.max(0, Math.max(a[0], b[0]) - Math.min(a[2], b[2]));
+        float gy = Math.max(0, Math.max(a[1], b[1]) - Math.min(a[3], b[3]));
+        // 横排：上下重叠够多、左右挨得近，且两个框高度接近（同一行）
+        boolean horiz = oy > 0.5f * Math.min(ah, bh) && gx < 1.1f * Math.min(ah, bh)
+                && Math.abs(ah - bh) < 0.6f * Math.max(ah, bh);
+        // 竖排：左右重叠够多、上下挨得近，且两个框都是「高比宽大」（竖排字）
+        boolean vert = ox > 0.5f * Math.min(aw, bw) && gy < 1.1f * Math.min(aw, bw)
+                && ah > aw * 1.2f && bh > bw * 1.2f;
+        return horiz || vert;
     }
 
     private static FloatBuffer inputsFromBitmap(Bitmap bmp, int w, int h, float[] mean, float[] std) {

@@ -187,6 +187,10 @@ public class MainActivity extends Activity {
         if (getIntent() != null && getIntent().getBooleanExtra("paste", false)) {
             ui.postDelayed(this::pasteFromNotify, 600);
         }
+        if (getIntent() != null && getIntent().hasExtra("ocr_path")) {
+            final String p = getIntent().getStringExtra("ocr_path");
+            ui.postDelayed(() -> runOcrToLog(p), 400);
+        }
 
         input.addTextChangedListener(new TextWatcher() {
             public void beforeTextChanged(CharSequence s, int a, int b, int c) {}
@@ -267,6 +271,11 @@ public class MainActivity extends Activity {
         head.addView(pasteBtn);
         TextView ocrBtn = textButton("识图", 0);
         ocrBtn.setOnClickListener(v -> pickImageForOcr());
+        ocrBtn.setOnLongClickListener(v -> {
+            java.io.File f = new java.io.File("/sdcard/Pictures/2205色卡.jpg");
+            if (f.exists()) runOcr(Uri.fromFile(f));
+            return true;
+        });
         head.addView(ocrBtn);
         clearTextBtn = textButton("清空", 0);
         clearTextBtn.setOnClickListener(v -> {
@@ -892,6 +901,10 @@ public class MainActivity extends Activity {
         if (intent != null && intent.getBooleanExtra("paste", false)) {
             ui.postDelayed(this::pasteFromNotify, 600);
         }
+        if (intent != null && intent.hasExtra("ocr_path")) {
+            final String path = intent.getStringExtra("ocr_path");
+            ui.postDelayed(() -> runOcrToLog(path), 400);
+        }
     }
 
     @Override
@@ -1014,6 +1027,29 @@ public class MainActivity extends Activity {
         }
     }
 
+    /** 调试用：识别指定文件，结果写进运行日志（不碰界面） */
+    private void runOcrToLog(final String path) {
+        new Thread(() -> {
+            try {
+                android.graphics.Bitmap bmp = android.graphics.BitmapFactory.decodeFile(path);
+                if (bmp == null) {
+                    log("OCR ✘ 图片读不出来: " + path);
+                    return;
+                }
+                if (ocr == null) ocr = new OnnxOcr();
+                long t0 = System.currentTimeMillis();
+                java.util.List<OnnxOcr.Line> lines = ocr.run(this, bmp);
+                log("OCR " + (System.currentTimeMillis() - t0) + "ms，共 " + lines.size() + " 行：");
+                for (OnnxOcr.Line l : lines) {
+                    log("OCR 「" + l.text + "」" + String.format("%.2f", l.score));
+                }
+                log("OCR 格式化结果：\n" + formatOcr(lines));
+            } catch (Throwable t) {
+                log("OCR ✘ " + t);
+            }
+        }).start();
+    }
+
     private void runOcr(final android.net.Uri uri) {
         snack("识别中…");
         new Thread(() -> {
@@ -1039,30 +1075,44 @@ public class MainActivity extends Activity {
             snack("没识别到文字");
             return;
         }
-        StringBuilder raw = new StringBuilder();
-        StringBuilder colors = new StringBuilder();
-        int colorLike = 0;
-        for (OnnxOcr.Line l : lines) {
-            if (raw.length() > 0) raw.append('\n');
-            raw.append(l.text);
-            String t = l.text.trim();
-            if (t.length() >= 2 && t.length() <= 6 && t.matches("[\\u4e00-\\u9fa5]+")) {
-                colorLike++;
-                if (colors.length() > 0) colors.append('/');
-                colors.append(t);
-            }
-        }
-        String add;
-        if (colorLike == lines.size()) {
-            add = "颜色：" + colors;
-        } else {
-            add = raw.toString();
-        }
+        String add = formatOcr(lines);
         String old = input.getText().toString().trim();
         input.setText(old.isEmpty() ? add : old + "\n" + add);
         input.setSelection(0);
         input.scrollTo(0, 0);
         snack("识别到 " + lines.size() + " 行，已填进笔记框");
+    }
+
+    /** 把识别结果排成能直接导入的笔记：短词当颜色，纯数字当款号，长中文当名称 */
+    private String formatOcr(java.util.List<OnnxOcr.Line> lines) {
+        String no = "";
+        String name = "";
+        StringBuilder colors = new StringBuilder();
+        int colorCnt = 0;
+        StringBuilder raw = new StringBuilder();
+        for (OnnxOcr.Line l : lines) {
+            String t = l.text.trim();
+            if (raw.length() > 0) raw.append('\n');
+            raw.append(t);
+            if (t.matches("\\d{3,}[A-Za-z0-9\\-_]*") && no.isEmpty()) {
+                no = t;
+            } else if (t.length() >= 5 && t.matches("[\\u4e00-\\u9fa5A-Za-z0-9%]+") && name.isEmpty()) {
+                name = t;
+            } else if (t.length() >= 2 && t.length() <= 6 && t.matches("[\\u4e00-\\u9fa5]+")) {
+                colorCnt++;
+                if (colors.length() > 0) colors.append('/');
+                colors.append(t);
+            }
+        }
+        if (colorCnt >= 2 && (!no.isEmpty() || !name.isEmpty())) {
+            StringBuilder sb = new StringBuilder();
+            if (!no.isEmpty()) sb.append("款号：").append(no).append('\n');
+            if (!name.isEmpty()) sb.append("名称：").append(name).append('\n');
+            sb.append("颜色：").append(colors);
+            return sb.toString();
+        }
+        if (colorCnt == lines.size()) return "颜色：" + colors;
+        return raw.toString();
     }
 
     /** 从通知进来时粘贴：等窗口拿到焦点再读剪贴板，否则读不到 */
