@@ -61,6 +61,7 @@ public class MainActivity extends Activity {
 
     private static final int REQ_IMAGES = 2001;
     private static final int REQ_PREVIEW = 2003;
+    private static final int REQ_OCR = 2005;
     private static final int REQ_SHIZUKU = 1001;
     private static final int REQ_VPN = 2002;
     private static final int LV_INFO = 0, LV_OK = 1, LV_WARN = 2, LV_ERR = 3;
@@ -73,6 +74,7 @@ public class MainActivity extends Activity {
     private EditText input, priceInput;
     private TextView statusPill, countText, imageCount, pasteBtn, clearTextBtn;
     private View importBtn, captureBtn;
+    private OnnxOcr ocr;
     private TextView captureLabel, captureHint;
     private TextView pickBtn, clearImgBtn;
     private TextView resultOk, resultSkip, resultFail;
@@ -263,6 +265,9 @@ public class MainActivity extends Activity {
         pasteBtn = textButton("粘贴", R.drawable.ic_paste);
         pasteBtn.setOnClickListener(v -> pasteClipboard());
         head.addView(pasteBtn);
+        TextView ocrBtn = textButton("识图", 0);
+        ocrBtn.setOnClickListener(v -> pickImageForOcr());
+        head.addView(ocrBtn);
         clearTextBtn = textButton("清空", 0);
         clearTextBtn.setOnClickListener(v -> {
             input.setText("");
@@ -998,6 +1003,68 @@ public class MainActivity extends Activity {
 
     // ================= 剪贴板 / 图片 =================
 
+    private void pickImageForOcr() {
+        try {
+            android.content.Intent i = new android.content.Intent(android.content.Intent.ACTION_GET_CONTENT);
+            i.setType("image/*");
+            i.addCategory(android.content.Intent.CATEGORY_OPENABLE);
+            startActivityForResult(android.content.Intent.createChooser(i, "选一张要识别的图"), REQ_OCR);
+        } catch (Throwable t) {
+            snack("打不开图片选择：" + t.getMessage());
+        }
+    }
+
+    private void runOcr(final android.net.Uri uri) {
+        snack("识别中…");
+        new Thread(() -> {
+            try {
+                java.io.InputStream is = getContentResolver().openInputStream(uri);
+                android.graphics.Bitmap bmp = android.graphics.BitmapFactory.decodeStream(is);
+                is.close();
+                if (bmp == null) {
+                    ui.post(() -> snack("图片读不出来"));
+                    return;
+                }
+                if (ocr == null) ocr = new OnnxOcr();
+                java.util.List<OnnxOcr.Line> lines = ocr.run(this, bmp);
+                ui.post(() -> applyOcr(lines));
+            } catch (Throwable t) {
+                ui.post(() -> snack("识别失败：" + t));
+            }
+        }).start();
+    }
+
+    private void applyOcr(java.util.List<OnnxOcr.Line> lines) {
+        if (lines == null || lines.isEmpty()) {
+            snack("没识别到文字");
+            return;
+        }
+        StringBuilder raw = new StringBuilder();
+        StringBuilder colors = new StringBuilder();
+        int colorLike = 0;
+        for (OnnxOcr.Line l : lines) {
+            if (raw.length() > 0) raw.append('\n');
+            raw.append(l.text);
+            String t = l.text.trim();
+            if (t.length() >= 2 && t.length() <= 6 && t.matches("[\\u4e00-\\u9fa5]+")) {
+                colorLike++;
+                if (colors.length() > 0) colors.append('/');
+                colors.append(t);
+            }
+        }
+        String add;
+        if (colorLike == lines.size()) {
+            add = "颜色：" + colors;
+        } else {
+            add = raw.toString();
+        }
+        String old = input.getText().toString().trim();
+        input.setText(old.isEmpty() ? add : old + "\n" + add);
+        input.setSelection(0);
+        input.scrollTo(0, 0);
+        snack("识别到 " + lines.size() + " 行，已填进笔记框");
+    }
+
     /** 从通知进来时粘贴：等窗口拿到焦点再读剪贴板，否则读不到 */
     private void pasteFromNotify() {
         if (!hasWindowFocus()) {
@@ -1058,6 +1125,12 @@ public class MainActivity extends Activity {
                 new Thread(() -> captureAndReport(auto)).start();
             } else {
                 snack("没有授权 VPN，抓不了会话");
+            }
+            return;
+        }
+        if (req == REQ_OCR) {
+            if (res == RESULT_OK && data != null && data.getData() != null) {
+                runOcr(data.getData());
             }
             return;
         }

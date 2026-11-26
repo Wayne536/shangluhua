@@ -31,7 +31,7 @@ PY
 echo "[1/5] 资源与清单"
 $BT/aapt2 compile --dir res -o build/res.zip
 $BT/aapt2 link -o build/base.apk -I "$AJ" --manifest AndroidManifest.xml \
-  build/res.zip --min-sdk-version 24 --target-sdk-version 30 --java build/gen
+  build/res.zip -A assets --min-sdk-version 24 --target-sdk-version 30 --java build/gen
 
 echo "[2/5] 编译 Java"
 CP="$AJ:$(find build/libs_jars -name classes.jar | tr '\n' ':')"
@@ -53,6 +53,10 @@ import glob, zipfile
 z = zipfile.ZipFile('unsigned.apk', 'a')
 for f in glob.glob('dex/*.dex'):
     z.write(f, f.split('/')[-1])
+import os
+for so in sorted(glob.glob(os.path.join('..', 'libs_so', '*', '*.so'))):
+    abi = os.path.basename(os.path.dirname(so))
+    z.write(so, 'lib/%s/%s' % (abi, os.path.basename(so)))
 z.close()
 PY
 $BT/zipalign -f 4 unsigned.apk aligned.apk
