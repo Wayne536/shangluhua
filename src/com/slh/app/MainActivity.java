@@ -187,29 +187,6 @@ public class MainActivity extends Activity {
         if (getIntent() != null && getIntent().getBooleanExtra("paste", false)) {
             ui.postDelayed(this::pasteFromNotify, 600);
         }
-        if (getIntent() != null && getIntent().hasExtra("ocr_path")) {
-            final String p = getIntent().getStringExtra("ocr_path");
-            ui.postDelayed(() -> runOcrToLog(p), 400);
-        }
-        if (getIntent() != null && getIntent().hasExtra("split_path")) {
-            final String p = getIntent().getStringExtra("split_path");
-            new Thread(() -> {
-                try {
-                    String t = new String(java.nio.file.Files.readAllBytes(
-                            java.nio.file.Paths.get(p)), "UTF-8");
-                    List<String> notes = splitNotes(t);
-                    log("SPLIT 共 " + notes.size() + " 条");
-                    for (String n : notes) {
-                        NoteParser np = NoteParser.parse(n);
-                        log("SPLIT 款号=" + np.no + " 名称=" + np.name
-                                + " 颜色=" + np.colors + " 尺码=" + np.sizes);
-                    }
-                } catch (Throwable e) {
-                    log("SPLIT ✘ " + e);
-                }
-            }).start();
-        }
-
         input.addTextChangedListener(new TextWatcher() {
             public void beforeTextChanged(CharSequence s, int a, int b, int c) {}
             public void onTextChanged(CharSequence s, int a, int b, int c) {}
@@ -919,10 +896,6 @@ public class MainActivity extends Activity {
         if (intent != null && intent.getBooleanExtra("paste", false)) {
             ui.postDelayed(this::pasteFromNotify, 600);
         }
-        if (intent != null && intent.hasExtra("ocr_path")) {
-            final String path = intent.getStringExtra("ocr_path");
-            ui.postDelayed(() -> runOcrToLog(path), 400);
-        }
     }
 
     @Override
@@ -1043,29 +1016,6 @@ public class MainActivity extends Activity {
         } catch (Throwable t) {
             snack("打不开图片选择：" + t.getMessage());
         }
-    }
-
-    /** 调试用：识别指定文件，结果写进运行日志（不碰界面） */
-    private void runOcrToLog(final String path) {
-        new Thread(() -> {
-            try {
-                android.graphics.Bitmap bmp = android.graphics.BitmapFactory.decodeFile(path);
-                if (bmp == null) {
-                    log("OCR ✘ 图片读不出来: " + path);
-                    return;
-                }
-                if (ocr == null) ocr = new OnnxOcr();
-                long t0 = System.currentTimeMillis();
-                java.util.List<OnnxOcr.Line> lines = ocr.run(this, bmp);
-                log("OCR " + (System.currentTimeMillis() - t0) + "ms，共 " + lines.size() + " 行：");
-                for (OnnxOcr.Line l : lines) {
-                    log("OCR 「" + l.text + "」" + String.format("%.2f", l.score));
-                }
-                log("OCR 格式化结果：\n" + formatOcr(lines));
-            } catch (Throwable t) {
-                log("OCR ✘ " + t);
-            }
-        }).start();
     }
 
     private void runOcr(final android.net.Uri uri) {
