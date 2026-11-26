@@ -191,6 +191,24 @@ public class MainActivity extends Activity {
             final String p = getIntent().getStringExtra("ocr_path");
             ui.postDelayed(() -> runOcrToLog(p), 400);
         }
+        if (getIntent() != null && getIntent().hasExtra("split_path")) {
+            final String p = getIntent().getStringExtra("split_path");
+            new Thread(() -> {
+                try {
+                    String t = new String(java.nio.file.Files.readAllBytes(
+                            java.nio.file.Paths.get(p)), "UTF-8");
+                    List<String> notes = splitNotes(t);
+                    log("SPLIT 共 " + notes.size() + " 条");
+                    for (String n : notes) {
+                        NoteParser np = NoteParser.parse(n);
+                        log("SPLIT 款号=" + np.no + " 名称=" + np.name
+                                + " 颜色=" + np.colors + " 尺码=" + np.sizes);
+                    }
+                } catch (Throwable e) {
+                    log("SPLIT ✘ " + e);
+                }
+            }).start();
+        }
 
         input.addTextChangedListener(new TextWatcher() {
             public void beforeTextChanged(CharSequence s, int a, int b, int c) {}
@@ -1800,8 +1818,53 @@ public class MainActivity extends Activity {
             if (!t.isEmpty()) return t;
         }
         String[] parts = text.split("(?m)(?=(?:【\\s*款号\\s*】|^\\s*款号\\s*:?))");
+        List<String> blocks = new ArrayList<>();
         for (String p : parts) {
-            if (!p.trim().isEmpty()) out.add(p.trim());
+            if (!p.trim().isEmpty()) blocks.add(p.trim());
+        }
+        return mergeSameStyle(blocks);
+    }
+
+    /** 同一个款号的多段笔记（比如先粘文字、再识图补颜色）合成一条 */
+    private List<String> mergeSameStyle(List<String> blocks) {
+        List<String> out = new ArrayList<>();
+        java.util.LinkedHashMap<String, NoteParser> byNo = new java.util.LinkedHashMap<>();
+        java.util.LinkedHashMap<String, java.util.LinkedHashSet<String>> colors = new java.util.LinkedHashMap<>();
+        java.util.LinkedHashMap<String, java.util.LinkedHashSet<String>> sizes = new java.util.LinkedHashMap<>();
+        for (String b : blocks) {
+            NoteParser p = NoteParser.parse(b);
+            String no = p.no == null ? "" : p.no.trim();
+            if (no.isEmpty()) {
+                out.add(b);
+                continue;
+            }
+            if (!byNo.containsKey(no)) {
+                byNo.put(no, p);
+                colors.put(no, new java.util.LinkedHashSet<>(p.colors));
+                sizes.put(no, new java.util.LinkedHashSet<>(p.sizes));
+                continue;
+            }
+            NoteParser first = byNo.get(no);
+            if (first.name == null || first.name.trim().isEmpty()) first.name = p.name;
+            if (first.price == null || first.price.trim().isEmpty()) first.price = p.price;
+            colors.get(no).addAll(p.colors);
+            sizes.get(no).addAll(p.sizes);
+        }
+        for (java.util.Map.Entry<String, NoteParser> e : byNo.entrySet()) {
+            NoteParser p = e.getValue();
+            String no = e.getKey();
+            StringBuilder sb = new StringBuilder();
+            sb.append("【款号】").append(no).append('\n');
+            sb.append("【名称】").append(p.name == null ? "" : p.name.trim()).append('\n');
+            sb.append("【颜色】").append(Text.join(new ArrayList<>(colors.get(no)))).append('\n');
+            java.util.LinkedHashSet<String> szSet = sizes.get(no);
+            if (szSet.size() > 1) szSet.remove("均码");
+            java.util.List<String> sz = new ArrayList<>(szSet);
+            sb.append("【尺码】").append(sz.isEmpty() ? "均码" : Text.join(sz));
+            if (p.price != null && !p.price.trim().isEmpty()) {
+                sb.append('\n').append("【进货价】").append(p.price.trim());
+            }
+            out.add(sb.toString());
         }
         return out;
     }

@@ -87,7 +87,15 @@ public class NoteParser {
         }
 
         n.price = price.replace("元", "").replace("¥", "").trim();
-        n.no = code.trim();
+        String rawCode = code.trim();
+        if (rawCode.matches(".*[ \t].*")) {
+            // 「款号：2205  30羊绒卷边半高领」这种，空格后面是名称
+            String[] seg = rawCode.split("[ \t]+", 2);
+            n.no = seg[0];
+            if (name.trim().isEmpty() && seg.length > 1) name = seg[1].trim();
+        } else {
+            n.no = rawCode;
+        }
         n.name = name.trim();
         n.colors = splitList(colors);
         n.sizes = normSizes(splitList(sizes));
