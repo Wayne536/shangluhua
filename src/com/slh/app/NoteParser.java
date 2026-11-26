@@ -74,6 +74,18 @@ public class NoteParser {
         // 群里很多笔记只写成份不写名称，用成份顶上，免得因为缺名称被跳过
         if (name.isEmpty() && !material.isEmpty()) name = material;
 
+        if (code.isEmpty() || colors.isEmpty()) {
+            parseLoose(text, n, code, name, colors, sizes);
+            code = n.no.isEmpty() ? code : n.no;
+            name = n.name.isEmpty() ? name : n.name;
+            if (colors.isEmpty() && !n.colors.isEmpty()) {
+                colors = joinSlash(n.colors);
+            }
+            if (sizes.isEmpty() && !n.sizes.isEmpty()) {
+                sizes = joinSlash(n.sizes);
+            }
+        }
+
         n.price = price.replace("元", "").replace("¥", "").trim();
         n.no = code.trim();
         n.name = name.trim();
@@ -81,6 +93,87 @@ public class NoteParser {
         n.sizes = normSizes(splitList(sizes));
         if (n.sizes.isEmpty()) n.sizes.add("均码");
         return n;
+    }
+
+    /**
+     * 没有【】也没有「款号：」时的兜底：
+     * 「8806，卷边半高领，超细美丽诺100%羊毛。M，L，XL三码」+ 下面一片颜色
+     */
+    private static void parseLoose(String text, NoteParser n, String code0,
+                                   String name0, String colors0, String sizes0) {
+        String[] lines = text.split("\n");
+        String first = "";
+        int firstIdx = -1;
+        for (int i = 0; i < lines.length; i++) {
+            if (!lines[i].trim().isEmpty()) {
+                first = lines[i].trim();
+                firstIdx = i;
+                break;
+            }
+        }
+        if (first.isEmpty()) return;
+
+        if (n.no.isEmpty() && code0.isEmpty()) {
+            java.util.regex.Matcher m = java.util.regex.Pattern
+                    .compile("^([A-Za-z0-9][A-Za-z0-9\\-_]{1,})").matcher(first);
+            if (m.find()) n.no = m.group(1);
+        }
+        if (n.name.isEmpty() && name0.isEmpty() && !n.no.isEmpty()) {
+            String rest = first.substring(first.indexOf(n.no) + n.no.length());
+            for (String p : rest.split("[，,。、；;]")) {
+                String t = p.trim();
+                if (t.isEmpty()) continue;
+                if (t.matches(".*[0-9%].*")) continue;
+                if (isSizeToken(t)) continue;
+                if (t.matches(".*(羊毛|羊绒|棉|腈纶|锦纶|氨纶|聚酯|莱赛尔|亚麻|真丝|莫代尔|粘纤|天丝|涤纶|绒|里料).*")) continue;
+                if (t.matches(".*[\\u4e00-\\u9fa5].*")) {
+                    n.name = t;
+                    break;
+                }
+            }
+        }
+        if (n.sizes.isEmpty() && sizes0.isEmpty()) {
+            java.util.List<String> sz = new ArrayList<>();
+            java.util.regex.Matcher sm = java.util.regex.Pattern
+                    .compile("(?<![A-Za-z])(XXS|XS|S|M|L|XL|XXL|2XL|3XL|4XL)(?![A-Za-z])")
+                    .matcher(first.toUpperCase());
+            while (sm.find()) sz.add(sm.group(1));
+            if (first.contains("均码")) {
+                sz.clear();
+                sz.add("均码");
+            }
+            if (!sz.isEmpty()) n.sizes = sz;
+        }
+        if (n.colors.isEmpty() && colors0.isEmpty()) {
+            Set<String> cs = new LinkedHashSet<>();
+            for (int i = firstIdx + 1; i < lines.length; i++) {
+                String line = lines[i];
+                if (line.contains("：") || line.contains(":")) continue;
+                for (String t : line.split("[\\t，,、/\\s]+")) {
+                    String v = t.trim();
+                    if (v.length() < 2 || v.length() > 6) continue;
+                    if (!v.matches("[\\u4e00-\\u9fa5]+")) continue;
+                    if (isSizeToken(v)) continue;
+                    cs.add(v);
+                }
+            }
+            if (!cs.isEmpty()) n.colors = new ArrayList<>(cs);
+        }
+    }
+
+    private static boolean isSizeToken(String t) {
+        String v = t.toUpperCase();
+        return v.matches("^(XXS|XS|S|M|L|XL|XXL|XX L|2XL|3XL|4XL|[一二三四五]码|均码|F)$")
+                || v.matches("^(XXS|XS|S|M|L|XL|2XL|3XL)[一二三四五六]码$");
+    }
+
+    private static String joinSlash(List<String> l) {
+        StringBuilder sb = new StringBuilder();
+        for (String s : l) {
+            if (sb.length() > 0) sb.append('/');
+            sb.append(s);
+        }
+        return sb.toString();
     }
 
     private static String tag(String text, String label) {

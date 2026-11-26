@@ -11,8 +11,20 @@ import java.util.List;
 public class TableNotes {
 
     public static boolean isTable(String text) {
-        if (text == null || text.isEmpty()) return false;
-        return text.contains("\t");
+        if (text == null || text.isEmpty() || !text.contains("\t")) return false;
+        for (String line : text.split("\n")) {
+            if (!line.contains("\t")) continue;
+            String[] cells = line.split("\t", -1);
+            for (String c : cells) {
+                String h = c.trim();
+                if (h.contains("款号") || h.contains("货号")) return true; // 有表头
+            }
+            String first = cells[0].trim();
+            // 没有表头时，只有第一列像款号（字母数字开头）才当表格；
+            // 笔记里常见「车厘子红\t金桔红」这种颜色网格，不能当表格
+            if (cells.length >= 2 && first.matches("[A-Za-z0-9][A-Za-z0-9\\-_]{2,}")) return true;
+        }
+        return false;
     }
 
     public static List<String> toNotes(String text) {

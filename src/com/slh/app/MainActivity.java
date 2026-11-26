@@ -801,7 +801,12 @@ public class MainActivity extends Activity {
     private static boolean looksLikeNote(String s) {
         if (s == null || s.length() < 8) return false;
         if (TableNotes.isTable(s)) return true;
-        return s.contains("款号") || s.contains("货号") || s.contains("【") || s.contains("颜色");
+        if (s.contains("款号") || s.contains("货号") || s.contains("【") || s.contains("颜色")) {
+            return true;
+        }
+        // 「8806，卷边半高领，成分。M，L，XL三码」这种没标签的开头
+        String first = s.split("\n")[0].trim();
+        return first.matches("^[A-Za-z0-9][A-Za-z0-9\\-_]{2,}[，,].*");
     }
 
     private void postReturnNotification() {
