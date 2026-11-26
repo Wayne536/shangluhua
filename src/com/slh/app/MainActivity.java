@@ -182,6 +182,9 @@ public class MainActivity extends Activity {
         restoreDraft();
         refreshStatus();
         new Thread(this::healStaleProxy).start();
+        if (getIntent() != null && getIntent().getBooleanExtra("paste", false)) {
+            ui.postDelayed(this::pasteFromNotify, 600);
+        }
 
         input.addTextChangedListener(new TextWatcher() {
             public void beforeTextChanged(CharSequence s, int a, int b, int c) {}
@@ -260,9 +263,6 @@ public class MainActivity extends Activity {
         pasteBtn = textButton("粘贴", R.drawable.ic_paste);
         pasteBtn.setOnClickListener(v -> pasteClipboard());
         head.addView(pasteBtn);
-        TextView readBtn = textButton("全文", 0);
-        readBtn.setOnClickListener(v -> showFullNote());
-        head.addView(readBtn);
         clearTextBtn = textButton("清空", 0);
         clearTextBtn.setOnClickListener(v -> {
             input.setText("");
@@ -280,8 +280,8 @@ public class MainActivity extends Activity {
         input.setBackgroundResource(R.drawable.bg_input);
         input.setPadding(dp(12), dp(10), dp(12), dp(10));
         input.setGravity(Gravity.TOP | Gravity.START);
-        input.setMinLines(5);
-        input.setMaxLines(10);
+        input.setMinLines(8);
+        input.setMaxLines(16);
         input.setInputType(InputType.TYPE_CLASS_TEXT | InputType.TYPE_TEXT_FLAG_MULTI_LINE);
         input.setLineSpacing(dp(3), 1f);
         LinearLayout.LayoutParams ilp = new LinearLayout.LayoutParams(-1, -2);
@@ -828,35 +828,6 @@ public class MainActivity extends Activity {
         super.onResume();
         refreshStatus();
         new Thread(this::healStaleProxy).start();
-        ui.postDelayed(this::autoFillFromClipboard, 200);
-    }
-
-    /** 回到前台时读剪贴板，像笔记就自动填进去（后台读不到，必须前台） */
-    private void autoFillFromClipboard() {
-        if (busy || capturing) return;
-        try {
-            ClipboardManager cm = (ClipboardManager) getSystemService(CLIPBOARD_SERVICE);
-            if (cm == null || !cm.hasPrimaryClip() || cm.getPrimaryClip() == null
-                    || cm.getPrimaryClip().getItemCount() == 0) {
-                return;
-            }
-            CharSequence cs = cm.getPrimaryClip().getItemAt(0).coerceToText(this);
-            String s = cs == null ? "" : cs.toString().trim();
-            if (!looksLikeNote(s) || s.equals(lastAutoFill) || s.equals(lastImported)) return;
-            String cur = input.getText().toString().trim();
-            if (s.equals(cur)) return;
-            if (!cur.isEmpty() && !cur.equals(lastAutoFill)) {
-                snack("剪贴板里有新笔记，点「粘贴」可替换当前内容");
-                return;
-            }
-            input.setText(s);
-            input.setSelection(s.length());
-            lastAutoFill = s;
-            log("已从剪贴板自动填入 " + noteCount(s) + " 条笔记");
-            snack("已自动填入剪贴板里的笔记");
-        } catch (Throwable ignored) {
-            // 读不到就算了（比如系统没给权限）
-        }
     }
 
     private static boolean looksLikeNote(String s) {
@@ -881,6 +852,7 @@ public class MainActivity extends Activity {
                 nm.createNotificationChannel(ch);
             }
             Intent open = new Intent(this, MainActivity.class);
+            open.putExtra("paste", true);
             open.setFlags(Intent.FLAG_ACTIVITY_NEW_TASK | Intent.FLAG_ACTIVITY_SINGLE_TOP);
             int flags = PendingIntent.FLAG_UPDATE_CURRENT;
             if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.M) {
@@ -905,6 +877,15 @@ public class MainActivity extends Activity {
             NotificationManager nm = (NotificationManager) getSystemService(NOTIFICATION_SERVICE);
             if (nm != null) nm.cancel(NOTIFY_RETURN);
         } catch (Throwable ignored) {
+        }
+    }
+
+    @Override
+    protected void onNewIntent(android.content.Intent intent) {
+        super.onNewIntent(intent);
+        setIntent(intent);
+        if (intent != null && intent.getBooleanExtra("paste", false)) {
+            ui.postDelayed(this::pasteFromNotify, 600);
         }
     }
 
@@ -1017,6 +998,15 @@ public class MainActivity extends Activity {
 
     // ================= 剪贴板 / 图片 =================
 
+    /** 从通知进来时粘贴：等窗口拿到焦点再读剪贴板，否则读不到 */
+    private void pasteFromNotify() {
+        if (!hasWindowFocus()) {
+            ui.postDelayed(this::pasteFromNotify, 300);
+            return;
+        }
+        pasteClipboard();
+    }
+
     private void pasteClipboard() {
         try {
             ClipboardManager cm = (ClipboardManager) getSystemService(CLIPBOARD_SERVICE);
@@ -1033,9 +1023,11 @@ public class MainActivity extends Activity {
                 return;
             }
             String old = input.getText().toString().trim();
+            int wasEmpty = old.isEmpty() ? 1 : 0;
             input.setText(old.isEmpty() ? s : old + "\n" + s);
-            input.setSelection(input.getText().length());
-            snack("已粘贴");
+            input.setSelection(0);
+            input.scrollTo(0, 0);
+            snack(wasEmpty == 1 ? "已粘贴，从上往下看" : "已追加粘贴");
         } catch (Throwable t) {
             snack("读取剪贴板失败：" + t.getMessage());
         }
@@ -1318,34 +1310,6 @@ public class MainActivity extends Activity {
             snack("顺序已调整");
         }
         rebuildThumbs();
-    }
-
-    /** 全文弹窗：可滚动阅读，长文不再只看得到最后几行 */
-    private void showFullNote() {
-        String text = input.getText().toString();
-        if (text.trim().isEmpty()) {
-            snack("笔记是空的");
-            return;
-        }
-        ScrollView sc = new ScrollView(this);
-        TextView tv = new TextView(this);
-        tv.setText(text);
-        tv.setTextSize(14);
-        tv.setTextIsSelectable(true);
-        tv.setLineSpacing(dp(4), 1f);
-        tv.setPadding(dp(18), dp(14), dp(18), dp(14));
-        sc.addView(tv);
-        new android.app.AlertDialog.Builder(this)
-                .setTitle("笔记全文 · " + text.length() + " 字")
-                .setView(sc)
-                .setPositiveButton("关闭", null)
-                .setNeutralButton("复制", (d, w) -> {
-                    android.content.ClipboardManager cm =
-                            (android.content.ClipboardManager) getSystemService(CLIPBOARD_SERVICE);
-                    cm.setPrimaryClip(android.content.ClipData.newPlainText("note", text));
-                    snack("已复制全文");
-                })
-                .show();
     }
 
     private void shareLog() {
