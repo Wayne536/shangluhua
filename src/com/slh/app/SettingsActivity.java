@@ -310,6 +310,40 @@ public class SettingsActivity extends Activity {
         }
     }
 
+    /** 应用内显示下载进度（DownloadManager 只给通知栏，这里每 0.8 秒查一次） */
+    private void pollDownload(final long id, final String tag) {
+        try {
+            DownloadManager dm = (DownloadManager) getSystemService(DOWNLOAD_SERVICE);
+            DownloadManager.Query q = new DownloadManager.Query().setFilterById(id);
+            android.database.Cursor c = dm.query(q);
+            if (c != null && c.moveToFirst()) {
+                int status = c.getInt(c.getColumnIndex(DownloadManager.COLUMN_STATUS));
+                long done = c.getLong(c.getColumnIndex(DownloadManager.COLUMN_BYTES_DOWNLOADED_SO_FAR));
+                long total = c.getLong(c.getColumnIndex(DownloadManager.COLUMN_TOTAL_SIZE_BYTES));
+                c.close();
+                if (status == DownloadManager.STATUS_SUCCESSFUL) {
+                    updateStatus.setText("下载完成，正在打开安装界面…");
+                    return;
+                }
+                if (status == DownloadManager.STATUS_FAILED) {
+                    updateStatus.setText("下载失败，可在下面切换镜像源后重试");
+                    return;
+                }
+                if (total > 0) {
+                    int pct = (int) (done * 100 / total);
+                    updateStatus.setText("正在下载 " + tag + "… " + pct + "%\n"
+                            + (done / 1048576) + "MB / " + (total / 1048576) + "MB");
+                } else {
+                    updateStatus.setText("正在下载 " + tag + "…");
+                }
+            } else if (c != null) {
+                c.close();
+            }
+        } catch (Throwable ignored) {
+        }
+        ui.postDelayed(() -> pollDownload(id, tag), 800);
+    }
+
     private String baseUrl(String tag) {
         if ("mirror".equals(source)) {
             return "https://cdn.jsdelivr.net/gh/" + REPO + "@" + tag + "/";
@@ -350,7 +384,8 @@ public class SettingsActivity extends Activity {
                     DownloadManager.Request.VISIBILITY_VISIBLE_NOTIFY_COMPLETED);
             req.setDestinationInExternalPublicDir(Environment.DIRECTORY_DOWNLOADS, file);
             downloadId = dm.enqueue(req);
-            updateStatus.setText("正在下载 " + tag + "…下载完成后会自动打开安装界面");
+            updateStatus.setText("正在下载 " + tag + "…");
+            pollDownload(downloadId, tag);
         } catch (Throwable t) {
             updateStatus.setText("下载失败：" + t.getMessage());
         }
