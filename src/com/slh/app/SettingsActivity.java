@@ -255,13 +255,54 @@ public class SettingsActivity extends Activity {
             } catch (Throwable t) {
                 err = friendly(t);
             }
+            String notes = null;
+            if (best != null) {
+                try {
+                    notes = fetchChangelog(best.tag);
+                } catch (Throwable ignored) {
+                }
+            }
             final TagInfo fBest = best;
             final String fErr = err;
-            ui.post(() -> showUpdateResult(cur, fBest, fErr));
+            final String fNotes = notes;
+            ui.post(() -> showUpdateResult(cur, fBest, fErr, fNotes));
         }).start();
     }
 
-    private void showUpdateResult(String cur, TagInfo best, String err) {
+    /** 拉这个 tag 的 CHANGELOG，截出对应版本那一段 */
+    private String fetchChangelog(String tag) {
+        try {
+            String body = httpGet(baseUrl(tag) + "CHANGELOG.md");
+            String ver = tag.replaceFirst("(?i)^v", "").trim();
+            String[] lines = body.split("\n");
+            StringBuilder sb = new StringBuilder();
+            boolean in = false;
+            for (String line : lines) {
+                if (line.startsWith("## ")) {
+                    if (in) break;
+                    if (line.contains(ver)) {
+                        in = true;
+                        continue;
+                    }
+                }
+                if (in) sb.append(line.trim()).append('\n');
+            }
+            String out = sb.toString().trim();
+            if (out.length() > 800) out = out.substring(0, 800) + "…";
+            return out.isEmpty() ? null : out;
+        } catch (Throwable t) {
+            return null;
+        }
+    }
+
+    private String baseUrl(String tag) {
+        if ("mirror".equals(source)) {
+            return "https://cdn.jsdelivr.net/gh/" + REPO + "@" + tag + "/";
+        }
+        return "https://github.com/" + REPO + "/raw/" + tag + "/";
+    }
+
+    private void showUpdateResult(String cur, TagInfo best, String err, String notes) {
         if (err != null) {
             updateStatus.setText("检查失败：" + err + "\n可切换更新源，或到 GitHub 仓库手动下载");
             return;
@@ -274,6 +315,7 @@ public class SettingsActivity extends Activity {
         new AlertDialog.Builder(this)
                 .setTitle("发现新版本 " + best.tag)
                 .setMessage("当前版本：v" + cur + "\n更新源：" + sourceLabel() + "\n\n"
+                        + (notes == null ? "" : "更新内容：\n" + notes + "\n\n")
                         + "是否下载更新？下载完成后会打开安装界面。")
                 .setPositiveButton("下载更新", (d, w) -> download(best.tag))
                 .setNegativeButton("稍后", null)
@@ -282,13 +324,7 @@ public class SettingsActivity extends Activity {
 
     private void download(String tag) {
         String file = "入库助手-" + tag + ".apk";
-        String base;
-        if ("mirror".equals(source)) {
-            base = "https://cdn.jsdelivr.net/gh/" + REPO + "@" + tag + "/releases/";
-        } else {
-            base = "https://github.com/" + REPO + "/raw/" + tag + "/releases/";
-        }
-        String url = base + encode(file);
+        String url = baseUrl(tag) + "releases/" + encode(file);
         try {
             DownloadManager dm = (DownloadManager) getSystemService(DOWNLOAD_SERVICE);
             DownloadManager.Request req = new DownloadManager.Request(Uri.parse(url));
