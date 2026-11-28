@@ -237,7 +237,21 @@ public class SettingsActivity extends Activity {
         new Thread(() -> {
             TagInfo best = null;
             String err = null;
+            // 先试轻量的 version.json（不受 GitHub API 限流影响）
             try {
+                String vj = httpGet("https://github.com/" + REPO + "/raw/master/releases/version.json");
+                JSONObject o = new JSONObject(vj);
+                String v = o.optString("version", "").trim();
+                if (v.matches("\\d+(\\.\\d+){1,3}")) {
+                    String tagName = "v" + v;
+                    if (compareVersion(tagName, cur) > 0) {
+                        best = new TagInfo(tagName, false);
+                    }
+                }
+            } catch (Throwable ignored) {
+            }
+            try {
+                if (best != null) throw new StopHere();
                 String body = httpGet(API_TAGS);
                 JSONArray arr = new JSONArray(body);
                 for (int i = 0; i < arr.length(); i++) {
@@ -252,6 +266,7 @@ public class SettingsActivity extends Activity {
                         best = new TagInfo(name, beta);
                     }
                 }
+            } catch (StopHere ignored) {
             } catch (Throwable t) {
                 err = friendly(t);
             }
@@ -610,6 +625,9 @@ public class SettingsActivity extends Activity {
         } catch (Throwable t) {
             return 0;
         }
+    }
+
+    private static class StopHere extends RuntimeException {
     }
 
     private String httpGet(String url) throws Exception {
